@@ -109,4 +109,9 @@ jobs:
 
       - uses: azure/setup-helm@v5
 
+      - name: Set up Docker Buildx
+        run: docker buildx create --use --driver docker-container --name ci-builder
+
       - run: task test-e2e
+        env:
+          CACHE_ARGS: "--cache-from type=gha --cache-to type=gha,mode=max"

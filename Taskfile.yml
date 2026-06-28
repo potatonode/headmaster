@@ -62,7 +62,7 @@ tasks:
   build-image:
     desc: Build the operator Docker image tagged headmaster:dev
     cmds:
-      - docker buildx build -t headmaster:dev --load .
+      - docker buildx build -t headmaster:dev --load ${CACHE_ARGS:-} .
 
   cluster-create:
     desc: Create the headmaster-test k3d cluster and wait for the node to be ready
