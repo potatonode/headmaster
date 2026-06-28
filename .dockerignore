@@ -1,0 +1,2 @@
+target/
+# note: dont exclude .git, its needed by shadow-rs

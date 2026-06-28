@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["pocketId"],
+  "additionalProperties": true,
+  "properties": {
+    "pocketId": {
+      "type": "object",
+      "required": ["apiKey"],
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Pocket ID static API key. Injected by the Taskfile."
+        }
+      }
+    },
+    "headmaster": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "headscaleInstances": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["serverUrl"],
+            "properties": {
+              "serverUrl": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Headscale server URL. Injected by the Taskfile."
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

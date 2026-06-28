@@ -1,0 +1,12 @@
+[workspace]
+members = ["operator", "headscale-client", "scim", "integration-tests"]
+default-members = ["operator", "headscale-client", "scim"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+repository = "https://github.com/potatonode/headmaster"
+homepage = "https://github.com/potatonode/headmaster"
+authors = ["Igor Bernstein <igor.bernstein@gmail.com>"]

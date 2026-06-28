@@ -1,0 +1,269 @@
+version: "3"
+
+output: prefixed
+
+dotenv: [".env"]
+
+vars:
+  INGRESS_HTTP_PORT: "8080"
+  TEST_NS: "headmaster-system"
+  APP_NS: "test-apps"
+  KUBE_CONTEXT: "k3d-headmaster-test"
+  HEADSCALE_HOSTNAME: "headscale.example.com"
+  TAILNET_DOMAIN: "ts.example.com"
+  POCKET_ID_HOSTNAME: "pocket-id.example.com"
+  POCKET_ID_API_KEY: "pocket-id-e2e-api-key-headmaster"
+  # Set KEEP_CLUSTER=true (e.g. in .env) to leave the k3d cluster running after
+  # test-e2e for local debugging. CI always uses the default (delete on exit).
+  KEEP_CLUSTER: '{{.KEEP_CLUSTER | default "false"}}'
+
+tasks:
+  verify:
+    desc: Run all checks (requires Docker, k3d, Go 1.25+, and libclang)
+    deps: [lint, test-unit, test-functional]
+    cmds:
+      - task: test-e2e
+
+  build:
+    desc: Compile the workspace
+    cmds:
+      - cargo build --workspace
+
+  lint:
+    desc: Run all linting and static checks (formatting, clippy, CRDs, Helm)
+    cmds:
+      - cargo fmt --all -- --check
+      - npx prettier --check "**/*.md"
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo run --bin crdgen -p operator check chart/
+      - helm lint chart/ --strict
+          --set headscaleImage=ghcr.io/juanfont/headscale:v0.29.0-beta.2
+      - helm lint examples/ --strict
+          --set pocketId.apiKey=lint-placeholder
+          --set headmaster.headscaleInstances.main.serverUrl=http://lint-placeholder
+          --set headmaster.headscaleInstances.main.dnsBaseDomain=lint-placeholder
+
+  test-unit:
+    desc: Run unit tests (no cluster or external services needed)
+    cmds:
+      - cargo test --workspace --lib --bins
+
+  test-functional:
+    desc: Run functional tests against an in-process envtest API server (requires Go 1.25+ and libclang)
+    cmds:
+      - cargo test -p integration-tests --test functional
+
+  crdgen:
+    desc: Write one CRD file per kind into chart/crds/ (run and commit after any CRD schema change)
+    cmds:
+      - cargo run --bin crdgen -p operator sync chart/
+
+  build-image:
+    desc: Build the operator Docker image tagged headmaster:dev
+    cmds:
+      - docker buildx build -t headmaster:dev --load .
+
+  cluster-create:
+    desc: Create the headmaster-test k3d cluster and wait for the node to be ready
+    cmds:
+      - task: cluster-delete
+      - task: registry-start
+      - k3d cluster create headmaster-test --image rancher/k3s:v1.36.1-k3s1 --port "{{.INGRESS_HTTP_PORT}}:80@loadbalancer" --kubeconfig-update-default=true --kubeconfig-switch-context=false --registry-use k3d-headmaster-dockerhub-mirror --wait
+      - |
+        for i in $(seq 30); do
+          kubectl --context {{.KUBE_CONTEXT}} cluster-info &>/dev/null && break || sleep 2
+        done
+        kubectl --context {{.KUBE_CONTEXT}} wait --for=condition=ready node --all --timeout=60s
+        for i in $(seq 30); do
+          docker exec k3d-headmaster-test-server-0 test -f /run/flannel/subnet.env 2>/dev/null && break
+          sleep 2
+        done
+        kubectl --context {{.KUBE_CONTEXT}} delete pod -n kube-system \
+          --field-selector='status.phase=Pending' 2>/dev/null || true
+        for i in $(seq 30); do
+          kubectl --context {{.KUBE_CONTEXT}} wait pod -n kube-system \
+            --for=condition=ready --field-selector='status.phase!=Succeeded' \
+            --timeout=10s 2>/dev/null && break || sleep 4
+        done
+
+  cluster-delete:
+    desc: Delete the headmaster-test k3d cluster (no-op if it does not exist)
+    cmds:
+      - cmd: k3d cluster delete headmaster-test
+        if: "k3d cluster list 2>/dev/null | grep -q 'headmaster-test'"
+
+  import-image:
+    internal: true
+    cmds:
+      - k3d image import headmaster:dev -c headmaster-test
+
+  registry-start:
+    internal: true
+    cmds:
+      - mkdir -p .registry-cache
+      - cmd: k3d registry delete headmaster-dockerhub-mirror 2>/dev/null
+        ignore_error: true
+      - k3d registry create headmaster-dockerhub-mirror --port 5001 --proxy-remote-url https://registry-1.docker.io -v "$(pwd)/.registry-cache:/var/lib/registry"
+
+  registry-stop:
+    internal: true
+    cmds:
+      - cmd: k3d registry delete headmaster-dockerhub-mirror
+        ignore_error: true
+
+  apply-crds:
+    internal: true
+    cmds:
+      - kubectl --context {{.KUBE_CONTEXT}} apply --server-side --force-conflicts -f chart/crds/
+
+  setup-coredns-alias:
+    internal: true
+    cmds:
+      - |
+        kubectl --context {{.KUBE_CONTEXT}} apply --server-side -f - <<'EOF'
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: coredns-custom
+          namespace: kube-system
+        data:
+          headscale.override: |
+            rewrite name {{.HEADSCALE_HOSTNAME}} traefik.kube-system.svc.cluster.local
+          pocket-id.override: |
+            rewrite name {{.POCKET_ID_HOSTNAME}} traefik.kube-system.svc.cluster.local
+        EOF
+      - kubectl --context {{.KUBE_CONTEXT}} rollout restart -n kube-system deploy/coredns
+      - kubectl --context {{.KUBE_CONTEXT}} rollout status -n kube-system deploy/coredns --timeout=60s
+
+  setup-examples:
+    internal: true
+    cmds:
+      - task: setup-coredns-alias
+      - helm dependency build examples/
+      - |
+        helm upgrade --install headmaster-examples examples/ \
+          --kube-context {{.KUBE_CONTEXT}} \
+          --namespace {{.TEST_NS}} --create-namespace \
+          --wait --timeout=600s \
+          --set headmaster.image.repository=headmaster \
+          --set headmaster.image.tag=dev \
+          --set headmaster.image.pullPolicy=Never \
+          --set "headmaster.rustLog=operator=debug\,scim=debug\,kube=debug\,kube_client=debug\,kube_runtime=debug\,info" \
+          --set headmaster.headscaleInstances.main.serverUrl="http://{{.HEADSCALE_HOSTNAME}}" \
+          --set headmaster.headscaleInstances.main.dnsBaseDomain="{{.TAILNET_DOMAIN}}" \
+          --set headmaster.headscaleInstances.main.extraConfig.log.level=debug \
+          --set "headmaster.headscaleInstances.main.scim.storage.size=100Mi" \
+          --set "headmaster.headscaleInstances.main.scim.oidcIssuer=http://{{.POCKET_ID_HOSTNAME}}" \
+          --set pocketId.apiKey={{.POCKET_ID_API_KEY}}
+      # Force a rollout so the pod picks up the newly imported headmaster:dev image.
+      # helm upgrade with a fixed tag doesn't restart the pod if the spec is unchanged.
+      - kubectl --context {{.KUBE_CONTEXT}} rollout restart deployment -l app.kubernetes.io/name=headmaster -n {{.TEST_NS}}
+      - kubectl --context {{.KUBE_CONTEXT}} rollout status deployment -l app.kubernetes.io/name=headmaster -n {{.TEST_NS}} --timeout=60s
+
+  test-e2e:
+    desc: Run e2e tests; always recreates the k3d cluster for a clean slate (set KEEP_CLUSTER=true to skip deletion on exit)
+    deps: [cluster-create, build-image]
+    cmds:
+      - defer:
+          task: e2e-cleanup
+          vars:
+            EXIT_CODE: "{{.EXIT_CODE}}"
+      - task: import-image
+      - task: setup-examples
+      - task: run-e2e-tests
+
+  e2e-cleanup:
+    internal: true
+    cmds:
+      - cmd: task diagnose
+        if: '[ -n "{{.EXIT_CODE}}" ]'
+        ignore_error: true
+      - cmd: task cluster-delete
+        if: '[ "{{.KEEP_CLUSTER}}" != "true" ]'
+      - cmd: task registry-stop
+        if: '[ "{{.KEEP_CLUSTER}}" != "true" ]'
+
+  wait-namespace-ready:
+    internal: true
+    cmds:
+      - cargo run -p integration-tests --bin wait_namespace_ready -- {{.TEST_NS}}
+
+  run-e2e-tests:
+    internal: true
+    env:
+      KUBE_CONTEXT: "{{.KUBE_CONTEXT}}"
+      INGRESS_ADDR: "127.0.0.1:{{.INGRESS_HTTP_PORT}}"
+      TEST_NS: "{{.TEST_NS}}"
+      APP_NS: "{{.APP_NS}}"
+      HEADSCALE_SERVER_URL: "http://{{.HEADSCALE_HOSTNAME}}"
+      POCKET_ID_HOSTNAME: "{{.POCKET_ID_HOSTNAME}}"
+      POCKET_ID_API_KEY: "{{.POCKET_ID_API_KEY}}"
+      OIDC_CLIENT_ID: "headmaster"
+    cmds:
+      - cargo run -p integration-tests --bin wait_namespace_ready -- {{.TEST_NS}}
+      - cargo test -p integration-tests --test e2e
+
+  fmt:
+    desc: Format Rust code and markdown docs in place
+    cmds:
+      - cargo fmt --all
+      - npx prettier --write "**/*.md"
+
+  update-protos:
+    desc: Re-vendor headscale proto files via git sparse-checkout (HEADSCALE_REF defaults to main)
+    vars:
+      HEADSCALE_REF: '{{.HEADSCALE_REF | default "main"}}'
+    cmds:
+      - |
+        set -euo pipefail
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' EXIT
+        git clone --filter=blob:none --no-checkout \
+          https://github.com/juanfont/headscale.git "$tmpdir/headscale"
+        git -C "$tmpdir/headscale" sparse-checkout set proto/headscale
+        git -C "$tmpdir/headscale" checkout "{{.HEADSCALE_REF}}"
+        if [ ! -d "$tmpdir/headscale/proto/headscale" ]; then
+          echo "proto/headscale not found — check HEADSCALE_REF" >&2; exit 1
+        fi
+        rm -rf headscale-client/proto/headscale/
+        cp -r "$tmpdir/headscale/proto/headscale" headscale-client/proto/headscale
+        echo "Synced headscale protos from juanfont/headscale@{{.HEADSCALE_REF}}"
+
+  diagnose:
+    desc: Dump operator logs and cluster state (useful after e2e failure)
+    cmds:
+      - task: diag-logs
+      - task: diag-pods
+      - task: diag-resources
+      - task: diag-events
+
+  diag-logs:
+    internal: true
+    cmds:
+      - |
+        kubectl --context {{.KUBE_CONTEXT}} get pods -A --no-headers \
+          | grep -v '^kube-system' \
+          | awk '$4 !~ /^(Running|Completed|Succeeded)$/ {print $1, $2}' \
+          | while read ns pod; do
+              echo "=== $ns/$pod ===";
+              kubectl --context {{.KUBE_CONTEXT}} logs -n "$ns" "$pod" --all-containers --tail=100 2>/dev/null || true;
+            done
+      - |
+        echo "=== operator logs ==="
+        kubectl --context {{.KUBE_CONTEXT}} logs -n {{.TEST_NS}} -l app.kubernetes.io/name=headmaster --all-containers --tail=200 2>/dev/null || true
+
+  diag-pods:
+    internal: true
+    cmds:
+      - kubectl --context {{.KUBE_CONTEXT}} get pods -A -o wide || true
+
+  diag-resources:
+    internal: true
+    cmds:
+      - kubectl --context {{.KUBE_CONTEXT}} get headscaleinstances,ingresses -A || true
+      - kubectl --context {{.KUBE_CONTEXT}} get statefulsets -A -o wide || true
+
+  diag-events:
+    internal: true
+    cmds:
+      - kubectl --context {{.KUBE_CONTEXT}} get events -A --field-selector type=Warning --sort-by='.lastTimestamp' || true

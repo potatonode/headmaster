@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "affinity": {
+      "type": "object"
+    },
+    "global": {
+      "type": "object"
+    },
+    "headscaleImage": {
+      "description": "Container image for the headscale server deployed by this operator.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "proxyImage": {
+      "description": "Container image for the Tailscale proxy sidecar deployed per Ingress.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "headscaleInstances": {
+      "additionalProperties": {
+        "description": "A headscale control-plane instance managed by headmaster.\n\nCreating a `HeadscaleInstance` causes the operator to deploy a headscale StatefulSet,\na Service, and a ConfigMap containing the rendered headscale configuration. Child\nresources are owned by the instance and are garbage-collected when it is deleted.",
+        "properties": {
+          "dnsBaseDomain": {
+            "description": "Base domain for Magic DNS node hostnames (e.g. `ts.example.com`).\n\nNodes will be reachable at `<hostname>.<dns_base_domain>` via the tailnet.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "extraConfig": {
+            "default": {},
+            "description": "Arbitrary extra configuration merged into the headscale config file.\n\nThe admission webhook rejects entries that would collide with operator-managed keys:\ntop-level `server_url`, `listen_addr`, `grpc_listen_addr`, `grpc_allow_insecure`,\n`metrics_listen_addr`, `unix_socket`, `unix_socket_permission`, `noise`, `database`,\n`policy`, and the `dns.magic_dns` / `dns.base_domain` subkeys. Other `dns.*` keys\n(e.g. `nameservers`, `split_dns`, `extra_records`) are deep-merged into the operator\ndefaults. Omit this field to use defaults only.",
+            "x-kubernetes-preserve-unknown-fields": true
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "description": "Extra labels applied to all child resources (ConfigMap, Service, StatefulSet).\nOperator-managed labels (`app.kubernetes.io/name`, `instance`, `managed-by`) always win.",
+            "type": "object"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "required": [
+                  "inline"
+                ]
+              }
+            ],
+            "description": "Headscale access-control policy applied to this instance.",
+            "nullable": true,
+            "properties": {
+              "inline": {
+                "description": "The policy document as a HuJSON or JSON string.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "resources": {
+            "description": "Resource requests and limits for the headscale container.\nDefaults to `50m`/`64Mi` requests and `500m`/`512Mi` limits when omitted.\nThe entire block is replaced when provided — partial overrides (e.g. only\n`requests` without `limits`) leave the unset half empty, not defaulted.",
+            "nullable": true,
+            "properties": {
+              "claims": {
+                "description": "Claims lists the names of resources, defined in spec.resourceClaims, that are used by this container.\n\nThis field depends on the DynamicResourceAllocation feature gate.\n\nThis field is immutable. It can only be set for containers.",
+                "items": {
+                  "description": "ResourceClaim references one entry in PodSpec.ResourceClaims.",
+                  "properties": {
+                    "name": {
+                      "description": "Name must match the name of one entry in pod.spec.resourceClaims of the Pod where this field is used. It makes that resource available inside a container.",
+                      "type": "string"
+                    },
+                    "request": {
+                      "description": "Request is the name chosen for a request in the referenced claim. If empty, everything from the claim is made available, otherwise only the result of this request.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "limits": {
+                "additionalProperties": {
+                  "description": "Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.\n\nThe serialization format is:\n\n``` <quantity>        ::= <signedNumber><suffix>\n\n\t(Note that <suffix> may be empty, from the \"\" case in <decimalSI>.)\n\n<digit>           ::= 0 | 1 | ... | 9 <digits>          ::= <digit> | <digit><digits> <number>          ::= <digits> | <digits>.<digits> | <digits>. | .<digits> <sign>            ::= \"+\" | \"-\" <signedNumber>    ::= <number> | <sign><number> <suffix>          ::= <binarySI> | <decimalExponent> | <decimalSI> <binarySI>        ::= Ki | Mi | Gi | Ti | Pi | Ei\n\n\t(International System of units; See: http://physics.nist.gov/cuu/Units/binary.html)\n\n<decimalSI>       ::= m | \"\" | k | M | G | T | P | E\n\n\t(Note that 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization.)\n\n<decimalExponent> ::= \"e\" <signedNumber> | \"E\" <signedNumber> ```\n\nNo matter which of the three exponent forms is used, no quantity may represent a number greater than 2^63-1 in magnitude, nor may it have more than 3 decimal places. Numbers larger or more precise will be capped or rounded up. (E.g.: 0.1m will rounded up to 1m.) This may be extended in the future if we require larger or smaller quantities.\n\nWhen a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.\n\nBefore serializing, Quantity will be put in \"canonical form\". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:\n\n- No precision is lost - No fractional digits will be emitted - The exponent (or suffix) is as large as possible.\n\nThe sign will be omitted unless the number is negative.\n\nExamples:\n\n- 1.5 will be serialized as \"1500m\" - 1.5Gi will be serialized as \"1536Mi\"\n\nNote that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.\n\nNon-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)\n\nThis format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation.",
+                  "x-kubernetes-int-or-string": true
+                },
+                "description": "Limits describes the maximum amount of compute resources allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+                "type": "object"
+              },
+              "requests": {
+                "additionalProperties": {
+                  "description": "Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.\n\nThe serialization format is:\n\n``` <quantity>        ::= <signedNumber><suffix>\n\n\t(Note that <suffix> may be empty, from the \"\" case in <decimalSI>.)\n\n<digit>           ::= 0 | 1 | ... | 9 <digits>          ::= <digit> | <digit><digits> <number>          ::= <digits> | <digits>.<digits> | <digits>. | .<digits> <sign>            ::= \"+\" | \"-\" <signedNumber>    ::= <number> | <sign><number> <suffix>          ::= <binarySI> | <decimalExponent> | <decimalSI> <binarySI>        ::= Ki | Mi | Gi | Ti | Pi | Ei\n\n\t(International System of units; See: http://physics.nist.gov/cuu/Units/binary.html)\n\n<decimalSI>       ::= m | \"\" | k | M | G | T | P | E\n\n\t(Note that 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization.)\n\n<decimalExponent> ::= \"e\" <signedNumber> | \"E\" <signedNumber> ```\n\nNo matter which of the three exponent forms is used, no quantity may represent a number greater than 2^63-1 in magnitude, nor may it have more than 3 decimal places. Numbers larger or more precise will be capped or rounded up. (E.g.: 0.1m will rounded up to 1m.) This may be extended in the future if we require larger or smaller quantities.\n\nWhen a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.\n\nBefore serializing, Quantity will be put in \"canonical form\". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:\n\n- No precision is lost - No fractional digits will be emitted - The exponent (or suffix) is as large as possible.\n\nThe sign will be omitted unless the number is negative.\n\nExamples:\n\n- 1.5 will be serialized as \"1500m\" - 1.5Gi will be serialized as \"1536Mi\"\n\nNote that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.\n\nNon-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)\n\nThis format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation.",
+                  "x-kubernetes-int-or-string": true
+                },
+                "description": "Requests describes the minimum amount of compute resources required. If Requests is omitted for a container, it defaults to Limits if that is explicitly specified, otherwise to an implementation-defined value. Requests cannot exceed Limits. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "scim": {
+            "description": "SCIM 2.0 server configuration. When set, the operator deploys a SCIM sidecar\nand validates that `spec.policy.inline` contains no `groups` key.",
+            "nullable": true,
+            "properties": {
+              "expireNodesOnChange": {
+                "default": false,
+                "description": "When true, expire all of a user's headscale nodes when the identifier\nused by `policyUserKey` changes (e.g. email change in `email` mode,\nusername rename in `username` mode). Forces immediate OIDC re-authentication.\nNot needed for `external_id` mode — the ProviderIdentifier never changes.\nDefault: false.",
+                "type": "boolean"
+              },
+              "oidcIssuer": {
+                "description": "OIDC issuer URL (e.g. `\"https://pocket-id.example.com\"`).\nRequired when `policyUserKey` is `\"external_id\"`.",
+                "nullable": true,
+                "type": "string"
+              },
+              "policyUserKey": {
+                "description": "Controls which identifier is written into headscale policy group entries\nand used to locate a user's headscale nodes for session management.\nValues: `\"email\"` (default), `\"username\"`, `\"external_id\"`.\nUse `\"external_id\"` with Pocket ID or Authentik for the most stable\nidentifier (maps to the OIDC `sub` claim / headscale `ProviderIdentifier`).",
+                "enum": [
+                  "email",
+                  "username",
+                  "external_id"
+                ],
+                "nullable": true,
+                "type": "string"
+              },
+              "storage": {
+                "description": "Persistent storage for the external-ID mapping file.",
+                "properties": {
+                  "size": {
+                    "description": "PVC storage request (e.g. `1Gi`).",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "storageClass": {
+                    "description": "StorageClass to use. Omit to use the cluster default.",
+                    "minLength": 1,
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "size"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "storage"
+            ],
+            "type": "object",
+            "x-kubernetes-validations": [
+              {
+                "message": "oidcIssuer is required when policyUserKey is 'external_id'",
+                "rule": "!has(self.policyUserKey) || self.policyUserKey != 'external_id' || has(self.oidcIssuer)"
+              }
+            ]
+          },
+          "serverUrl": {
+            "description": "Publicly-reachable URL of this headscale server, used for Magic DNS and DERP\nconfiguration (e.g. `https://headscale.example.com`).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "storage": {
+            "description": "Persistent storage for the headscale SQLite database.",
+            "properties": {
+              "size": {
+                "description": "PVC storage request (e.g. `1Gi`).",
+                "minLength": 1,
+                "type": "string"
+              },
+              "storageClass": {
+                "description": "StorageClass to use. Omit to use the cluster default.",
+                "minLength": 1,
+                "nullable": true,
+                "type": "string"
+              }
+            },
+            "required": [
+              "size"
+            ],
+            "type": "object"
+          },
+          "watchedNamespaces": {
+            "description": "Namespaces from which `headmaster` Ingresses may reference this instance.\nEmpty list (the default) allows Ingresses from any namespace.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "dnsBaseDomain",
+          "serverUrl",
+          "storage"
+        ],
+        "type": "object"
+      },
+      "type": "object"
+    },
+    "image": {
+      "additionalProperties": false,
+      "properties": {
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ],
+          "type": "string"
+        },
+        "repository": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "pullPolicy"
+      ],
+      "type": "object"
+    },
+    "ingress": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Set to false to disable the Ingress controller. Useful when headmaster is used solely to manage HeadscaleInstance lifecycles.",
+          "type": "boolean"
+        },
+        "watchNamespaces": {
+          "description": "Namespaces to watch for Ingress objects. Empty list means all namespaces.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "nodeSelector": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "podAnnotations": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "resources": {
+      "additionalProperties": false,
+      "properties": {
+        "limits": {
+          "additionalProperties": false,
+          "properties": {
+            "cpu": {
+              "type": "string"
+            },
+            "memory": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "requests": {
+          "additionalProperties": false,
+          "properties": {
+            "cpu": {
+              "type": "string"
+            },
+            "memory": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "rustLog": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "tolerations": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "webhook": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "headscaleImage",
+    "proxyImage",
+    "image",
+    "rustLog",
+    "resources"
+  ],
+  "title": "headmaster values",
+  "type": "object"
+}

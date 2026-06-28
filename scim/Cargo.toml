@@ -1,0 +1,37 @@
+[package]
+name = "scim"
+description = "SCIM sidecar that syncs users from an OIDC provider to headscale"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "headmaster-scim"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "fs", "sync", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror = "2"
+jsonc-parser = { version = "0.32", features = ["cst", "serde"] }
+headscale-client = { path = "../headscale-client" }
+shadow-rs = "0"
+uuid = { version = "1", features = ["v4"] }
+jiff = { version = "0.2", features = ["serde"] }
+prost-types = "0.14"
+futures = { version = "0.3", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+headscale-client = { path = "../headscale-client", features = ["fake-server"] }
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+shadow-rs = "0"

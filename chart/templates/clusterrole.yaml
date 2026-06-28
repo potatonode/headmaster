@@ -1,0 +1,19 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "headmaster.fullname" . }}
+  labels:
+    {{- include "headmaster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses]
+    verbs: [get, create, patch, update]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch, patch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses/status]
+    verbs: [get, patch]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]

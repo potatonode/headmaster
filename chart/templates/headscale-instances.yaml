@@ -1,0 +1,12 @@
+{{- range $name, $spec := .Values.headscaleInstances }}
+---
+apiVersion: headmaster.potatonode.github.io/v1alpha1
+kind: HeadscaleInstance
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "headmaster.labels" $ | nindent 4 }}
+spec:
+  {{- toYaml $spec | nindent 2 }}
+{{- end }}

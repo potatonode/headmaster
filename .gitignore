@@ -1,0 +1,15 @@
+/target/
+/examples/charts/
+/.registry-cache/
+
+# IDE
+/.vscode/
+/.idea/
+*.swp
+*.swo
+
+# Claude
+.claude/
+
+# Local overrides (e.g. KEEP_CLUSTER=1)
+.env

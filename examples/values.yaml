@@ -1,0 +1,74 @@
+app:
+  namespace: test-apps
+
+headmaster:
+  headscaleInstances:
+    main:
+      serverUrl: ""
+      dnsBaseDomain: ""
+      storage:
+        size: 5Gi
+      scim:
+        storage:
+          size: 1Gi
+        # Use the stable OIDC sub claim (Pocket ID user UUID) as the policy
+        # identifier rather than email, which is mutable.
+        policyUserKey: external_id
+        # oidcIssuer is required when policyUserKey is "external_id".
+        # Set at deploy time, e.g.:
+        #   helm install ... --set headmaster.headscaleInstances.main.scim.oidcIssuer=https://pocket-id.example.com
+        # oidcIssuer: https://pocket-id.example.com
+      policy:
+        inline: |
+          {
+            "tagOwners": {
+              "tag:headmaster": [],
+              "tag:server":     []
+            },
+            "acls": [
+              {
+                "action": "accept",
+                "src": ["*", "tag:server", "tag:headmaster"],
+                "dst": ["*:*", "100.64.0.0/10:*"]
+              }
+            ]
+          }
+      extraConfig:
+        log:
+          level: info
+        derp:
+          urls:
+            - https://controlplane.tailscale.com/derpmap/default
+          auto_update_enabled: true
+          update_frequency: 24h
+        prefixes:
+          v4: "100.64.0.0/10"
+          v6: "fd7a:115c:a1e0::/48"
+          allocation: sequential
+        taildrop:
+          enabled: false
+
+# Pocket ID OIDC / SCIM provider
+pocketId:
+  # apiKey: set via --set at deploy time
+
+pocket-id-operator:
+  instance:
+    enabled: true
+    spec:
+      encryptionKey:
+        valueFrom:
+          secretKeyRef:
+            name: pocket-id-encryption-key
+            key: key
+      appUrl: "http://pocket-id.example.com"
+      analyticsDisabled: true
+      versionCheckDisabled: true
+  users:
+    - name: headmaster-admin
+      spec:
+        firstName:
+          value: Headmaster
+        lastName:
+          value: Admin
+        admin: true

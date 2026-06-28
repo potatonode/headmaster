@@ -1,0 +1,45 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchManagers": ["cargo"],
+      "groupName": "rust dependencies",
+      "groupSlug": "rust-deps"
+    },
+    {
+      "matchPackageNames": ["ghcr.io/juanfont/headscale"],
+      "groupName": "headscale image",
+      "groupSlug": "headscale-image"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^chart/values\\.yaml$"],
+      "matchStrings": [
+        "headscaleImage:\\s*(?<depName>[^:\\n]+):(?<currentValue>[^\\n]+)",
+        "proxyImage:\\s*(?<depName>[^:\\n]+):(?<currentValue>[^\\n]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^Taskfile\\.yml$"],
+      "matchStrings": [
+        "headscaleImage=(?<depName>[^:\\n]+):(?<currentValue>[^\\n]+)",
+        "--image (?<depName>rancher/k3s):(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/verify\\.yml$"],
+      "matchStrings": [
+        "k3d-io/k3d/releases/download/(?<currentValue>[^/]+)/k3d-linux-amd64"
+      ],
+      "depNameTemplate": "k3d-io/k3d",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}

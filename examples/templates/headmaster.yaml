@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: main
+  namespace: {{ .Release.Namespace }}
+spec:
+  rules:
+    - host: {{ .Values.headmaster.headscaleInstances.main.serverUrl | trimPrefix "http://" | trimPrefix "https://" | splitList "/" | first }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: headscale-server-main
+                port:
+                  name: http
+---
+apiVersion: pocketid.internal/v1alpha1
+kind: PocketIDOIDCClient
+metadata:
+  name: headmaster
+  namespace: {{ .Release.Namespace }}
+spec:
+  clientID: headmaster
+  name: Headmaster
+  callbackUrls:
+    - "{{ .Values.headmaster.headscaleInstances.main.serverUrl }}/oidc/callback"
+  logo:
+    autoGenerate: false
+  scim:
+    endpoint: "http://headscale-scim-main.{{ .Release.Namespace }}.svc:8081/scim/v2"
+    tokenSecretRef:
+      name: headscale-scim-token-main
+      key: SCIM_BEARER_TOKEN
