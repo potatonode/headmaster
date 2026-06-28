@@ -16,7 +16,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -27,12 +27,10 @@ jobs:
           cache-on-failure: "true"
           prefix-key: lint
 
-      - uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Task
+        run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
       - run: task lint
 
@@ -43,7 +41,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -52,10 +50,8 @@ jobs:
           cache-on-failure: "true"
           prefix-key: test-unit
 
-      - uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Task
+        run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
       - run: task test-unit
 
@@ -66,7 +62,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -82,10 +78,8 @@ jobs:
       - name: Install libclang
         run: sudo apt-get install -y libclang-dev
 
-      - uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Task
+        run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
       - run: task test-functional
 
@@ -96,7 +90,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -105,16 +99,14 @@ jobs:
           cache-on-failure: "true"
           prefix-key: test-e2e
 
-      - uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Task
+        run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
       - name: Install k3d
         run: |
           curl -sL https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64 \
             -o /usr/local/bin/k3d && chmod +x /usr/local/bin/k3d
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
       - run: task test-e2e
