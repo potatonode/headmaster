@@ -38,6 +38,7 @@ tasks:
       - cargo run --bin crdgen -p operator check chart/
       - helm lint chart/ --strict
           --set headscaleImage=ghcr.io/juanfont/headscale:v0.29.0-beta.2
+      - helm dependency build examples/
       - helm lint examples/ --strict
           --set pocketId.apiKey=lint-placeholder
           --set headmaster.headscaleInstances.main.serverUrl=http://lint-placeholder
