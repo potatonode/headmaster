@@ -250,7 +250,6 @@ fn json_values_equal<'a, 'b>(a: JsonValue<'a>, b: &JsonValue<'b>) -> bool {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
