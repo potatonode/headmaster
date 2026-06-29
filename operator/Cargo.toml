@@ -31,13 +31,13 @@ axum = "0.8"
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 http = "1"
 humantime = "2"
-shadow-rs = "0"
+shadow-rs = "2"
 prost-types = "0.14"
 headscale-client = { path = "../headscale-client" }
 jsonc-parser = { version = "0.32", features = ["cst", "serde"] }
 
 [build-dependencies]
-shadow-rs = "0"
+shadow-rs = "2"
 
 [dev-dependencies]
 headscale-client = { path = "../headscale-client", features = ["fake-server"] }
