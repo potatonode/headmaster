@@ -90,6 +90,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v5
 
@@ -110,13 +111,18 @@ jobs:
 
       - uses: azure/setup-helm@v5
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Docker Buildx
-        run: |
-          docker buildx create --use --driver docker-container \
-            --driver-opt "env.ACTIONS_CACHE_URL=${ACTIONS_CACHE_URL}" \
-            --driver-opt "env.ACTIONS_RUNTIME_TOKEN=${ACTIONS_RUNTIME_TOKEN}" \
-            --name ci-builder
+        run: docker buildx create --use --driver docker-container --name ci-builder
 
       - run: task test-e2e
         env:
-          CACHE_ARGS: "--cache-from type=gha --cache-to type=gha,mode=max"
+          CACHE_ARGS: >-
+            --cache-from type=registry,ref=ghcr.io/potatonode/headmaster:buildcache
+            --cache-to type=registry,ref=ghcr.io/potatonode/headmaster:buildcache,mode=max
