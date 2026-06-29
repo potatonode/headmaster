@@ -13,7 +13,7 @@ use k8s_openapi_ext::{
     ServiceExt, ServicePortExt, StatefulSetExt,
 };
 use kube::api::Api;
-use rand::RngCore;
+use rand::Rng;
 
 use super::Error;
 use crate::context::Context;
@@ -150,7 +150,7 @@ async fn ensure_scim_token(ctx: &Context, child: &ChildApplier<'_>) -> Result<()
     }
 
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let token = hex::encode(bytes);
 
     tracing::info!(

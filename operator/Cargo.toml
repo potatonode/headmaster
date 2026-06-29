@@ -11,7 +11,7 @@ default-run = "operator"
 
 [dependencies]
 kube = { version = "3.1", default-features = false, features = ["runtime", "derive", "ws", "admission", "rustls-tls", "aws-lc-rs"] }
-k8s-openapi = { version = "0.28", features = ["v1_35", "schemars"] }
+k8s-openapi = { version = "0.27", features = ["v1_35", "schemars"] }
 k8s-openapi-ext = { version = "0.27", features = ["time"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net", "sync"] }
 tokio-util = "0.7"
