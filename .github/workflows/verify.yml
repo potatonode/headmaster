@@ -110,8 +110,7 @@ jobs:
 
       - uses: azure/setup-helm@v5
 
-      - name: Set up Docker Buildx
-        run: docker buildx create --use --driver docker-container --name ci-builder
+      - uses: docker/setup-buildx-action@v4
 
       - run: task test-e2e
         env:
