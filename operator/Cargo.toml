@@ -26,9 +26,9 @@ serde_yaml = "0.9"
 clap = { version = "4", features = ["derive"] }
 sha2 = "0.11"
 hex = "0.4"
-rand = "0.8"
+rand = "0.10"
 axum = "0.8"
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 http = "1"
 humantime = "2"
 shadow-rs = "0"
