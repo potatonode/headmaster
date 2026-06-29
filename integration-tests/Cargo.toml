@@ -6,13 +6,13 @@ publish = false
 
 [dependencies]
 kube = { version = "3.1", default-features = false, features = ["runtime", "derive", "ws", "rustls-tls", "aws-lc-rs"] }
-k8s-openapi = { version = "0.27", features = ["v1_35"] }
+k8s-openapi = { version = "0.28", features = ["v1_35"] }
 tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 rustls = { version = "0.23", default-features = false }
 dtor = "1"
-envtest = "0.2"
+envtest = "0.3"
 uuid = { version = "1", features = ["v4"] }
 operator = { path = "../operator" }
 headscale-client = { path = "../headscale-client", features = ["fake-server"] }
@@ -22,6 +22,6 @@ serde_json = "1"
 sha2 = "0.11"
 hex = "0.4"
 jsonc-parser = { version = "0.32", features = ["serde"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots-no-provider", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-tls-webpki-roots-no-provider", "json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
