@@ -107,7 +107,7 @@ jobs:
 
       - name: Install k3d
         run: |
-          curl -sL https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64 \
+          curl -sL https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-amd64 \
             -o /usr/local/bin/k3d && chmod +x /usr/local/bin/k3d
 
       - uses: azure/setup-helm@v5
