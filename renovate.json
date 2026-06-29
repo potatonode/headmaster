@@ -8,6 +8,18 @@
       "groupSlug": "rust-deps"
     },
     {
+      "matchManagers": ["cargo"],
+      "matchPackageNames": [
+        "kube",
+        "k8s-openapi",
+        "k8s-openapi-ext",
+        "envtest"
+      ],
+      "groupName": "kube ecosystem",
+      "groupSlug": "kube-ecosystem",
+      "separateMajorMinor": false
+    },
+    {
       "matchPackageNames": ["ghcr.io/juanfont/headscale"],
       "groupName": "headscale image",
       "groupSlug": "headscale-image"
