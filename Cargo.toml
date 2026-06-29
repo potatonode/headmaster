@@ -1,5 +1,5 @@
 [workspace]
-members = ["operator", "headscale-client", "scim", "integration-tests"]
+members = ["operator", "headscale-client", "scim", "integration-tests", "k8s-ext"]
 default-members = ["operator", "headscale-client", "scim"]
 resolver = "2"
 

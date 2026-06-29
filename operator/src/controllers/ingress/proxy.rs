@@ -1,17 +1,17 @@
+use k8s_ext::{
+    ConfigMapExt, ConfigMapVolumeSourceExt, ContainerExt, EnvVarExt, PodSpecExt,
+    PodTemplateSpecExt, PolicyRuleExt, RoleBindingExt, RoleExt, SecretExt, ServiceAccountExt,
+    ServiceExt, ServicePortExt, StatefulSetExt, SubjectExt, VolumeExt, VolumeMountExt,
+};
 use k8s_openapi::ByteString;
 use k8s_openapi::api::apps::v1::StatefulSet;
 use k8s_openapi::api::core::v1::{
-    ConfigMap, ConfigMapVolumeSource, Container, EnvVar, EnvVarSource, PodSecurityContext, PodSpec,
-    PodTemplateSpec, SeccompProfile, Secret, SecretKeySelector, Service, ServiceAccount,
-    ServicePort, ServiceSpec, Volume, VolumeMount,
+    ConfigMap, ConfigMapVolumeSource, Container, EnvVar, PodSecurityContext, PodSpec,
+    PodTemplateSpec, SeccompProfile, Secret, Service, ServiceAccount, ServicePort, ServiceSpec,
+    Volume, VolumeMount,
 };
 use k8s_openapi::api::networking::v1::Ingress;
 use k8s_openapi::api::rbac::v1::{PolicyRule, Role, RoleBinding, Subject};
-use k8s_openapi_ext::{
-    ConfigMapExt, ConfigMapVolumeSourceExt, ContainerExt, EnvVarExt, PodSpecExt,
-    PodTemplateSpecExt, PolicyRuleExt, RoleBindingExt, RoleExt, SecretExt, ServiceAccountExt,
-    ServiceExt, ServicePortExt, StatefulSetExt, VolumeExt, VolumeMountExt,
-};
 use kube::api::{Api, Patch, PatchParams};
 use kube::{Client, ResourceExt};
 
@@ -241,12 +241,10 @@ pub(super) async fn apply_proxy_rbac(
     child
         .apply(
             "tailscale-proxy",
-            RoleBinding::new(&names.proxy_name, &role).subjects([Subject {
-                kind: "ServiceAccount".to_string(),
-                name: names.proxy_name.clone(),
-                namespace: Some(child.namespace.clone()),
-                api_group: Some("".to_string()),
-            }]),
+            RoleBinding::new(&names.proxy_name, &role).subjects([Subject::service_account(
+                &names.proxy_name,
+                &child.namespace,
+            )]),
         )
         .await?;
     Ok(())
@@ -269,18 +267,7 @@ pub(super) async fn apply_proxy_statefulset(
         .allow_privilege_escalation(false)
         .drop_capabilities(["ALL"])
         .env([
-            EnvVar {
-                name: "TS_AUTHKEY".to_string(),
-                value_from: Some(EnvVarSource {
-                    secret_key_ref: Some(SecretKeySelector {
-                        name: names.config_secret_name.clone(),
-                        key: "key".to_string(),
-                        optional: Some(false),
-                    }),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
+            EnvVar::secret_key_ref("TS_AUTHKEY", &names.config_secret_name, "key"),
             EnvVar::value("TS_HOSTNAME", hostname),
             // TS_EXTRA_ARGS → passed to `tailscale up` (CLI flags only).
             EnvVar::value(

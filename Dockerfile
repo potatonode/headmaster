@@ -22,6 +22,7 @@ COPY operator/ operator/
 COPY headscale-client/ headscale-client/
 COPY scim/ scim/
 COPY integration-tests/ integration-tests/
+COPY k8s-ext/ k8s-ext/
 COPY .git/ .git/
 RUN --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \

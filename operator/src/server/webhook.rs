@@ -11,14 +11,14 @@ use axum::extract::State;
 use axum::routing::post;
 use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
+use k8s_ext::{
+    ConfigMapExt, ConfigMapVolumeSourceExt, ContainerExt, JobExt, PodSpecExt, PodTemplateSpecExt,
+    VolumeExt, VolumeMountExt,
+};
 use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{
     ConfigMap, ConfigMapVolumeSource, Container, Pod, PodSecurityContext, PodSpec, PodTemplateSpec,
     SeccompProfile, Volume, VolumeMount,
-};
-use k8s_openapi_ext::{
-    ConfigMapExt, ConfigMapVolumeSourceExt, ContainerExt, JobExt, PodSpecExt, PodTemplateSpecExt,
-    VolumeExt, VolumeMountExt,
 };
 use kube::api::{Api, DeleteParams, ListParams, LogParams, PostParams};
 use kube::core::admission::{AdmissionRequest, AdmissionResponse, AdmissionReview};
@@ -154,7 +154,7 @@ async fn run_configtest(
 
     // ResourceBuilder's .namespace()/.labels()/.owner() share names with kube::ResourceExt
     // getters; scoped locally to avoid the module-level collision.
-    use k8s_openapi_ext::ResourceBuilder;
+    use k8s_ext::ResourceBuilder;
     let cm = ConfigMap::new(&name)
         .namespace(&ctx.operator_namespace)
         .labels(configtest_labels(instance_name))
@@ -219,7 +219,7 @@ fn configtest_labels(instance_name: &str) -> BTreeMap<String, String> {
 fn configtest_job(namespace: &str, image: &str, name: &str, instance_name: &str) -> Job {
     // ResourceBuilder's .namespace()/.labels()/.owner() share names with kube::ResourceExt
     // getters; scoped locally to avoid the module-level collision.
-    use k8s_openapi_ext::ResourceBuilder;
+    use k8s_ext::ResourceBuilder;
     let config_volume = Volume::configmap("config", ConfigMapVolumeSource::new(name));
     let container = Container::new("configtest")
         .image(image)

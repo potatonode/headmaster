@@ -4,10 +4,10 @@ use headscale_client::headscale::v1::{
     CreatePreAuthKeyRequest, DeletePreAuthKeyRequest, ListUsersRequest,
 };
 use headscale_client::{AuthenticatedClient, Status};
+use k8s_ext::{SecretExt, SecretGetExt};
 use k8s_openapi::ByteString;
 use k8s_openapi::api::core::v1::Secret;
 use k8s_openapi::api::networking::v1::Ingress;
-use k8s_openapi_ext::{SecretExt, SecretGetExt};
 use kube::Resource;
 use kube::api::Api;
 use prost_types::Timestamp;
