@@ -15,24 +15,11 @@
       "matchPackageNames": [
         "kube",
         "k8s-openapi",
-        "k8s-openapi-ext",
         "envtest"
       ],
       "groupName": "kube ecosystem",
       "groupSlug": "kube-ecosystem",
       "separateMajorMinor": false
-    },
-    {
-      "description": "TODO: remove when k8s-openapi-ext releases 0.28 support — kube 4.x requires k8s-openapi 0.28, which k8s-openapi-ext does not yet support; upgrade the whole kube ecosystem together",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["kube"],
-      "allowedVersions": "<4.0.0"
-    },
-    {
-      "description": "TODO: remove when k8s-openapi-ext releases 0.28 support — upgrade kube and k8s-openapi together in one PR",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["k8s-openapi"],
-      "allowedVersions": "<0.28.0"
     },
     {
       "matchPackageNames": ["ghcr.io/juanfont/headscale"],
