@@ -27,7 +27,6 @@
       "customType": "regex",
       "fileMatch": ["^Taskfile\\.yml$"],
       "matchStrings": [
-        "headscaleImage=(?<depName>[^:\\n]+):(?<currentValue>[^\\n]+)",
         "--image (?<depName>rancher/k3s):(?<currentValue>[^\\s]+)"
       ],
       "datasourceTemplate": "docker"
