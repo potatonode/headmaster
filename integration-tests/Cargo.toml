@@ -12,7 +12,7 @@ tokio = { version = "1", features = ["full"] }
 [dev-dependencies]
 rustls = { version = "0.23", default-features = false }
 dtor = "1"
-envtest = "0.2"
+envtest = "0.3"
 uuid = { version = "1", features = ["v4"] }
 operator = { path = "../operator" }
 headscale-client = { path = "../headscale-client", features = ["fake-server"] }
