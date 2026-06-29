@@ -1,11 +1,26 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
   "packageRules": [
     {
       "matchManagers": ["cargo"],
       "groupName": "rust dependencies",
       "groupSlug": "rust-deps"
+    },
+    {
+      "matchManagers": ["cargo"],
+      "matchPackageNames": [
+        "kube",
+        "k8s-openapi",
+        "k8s-openapi-ext",
+        "envtest"
+      ],
+      "groupName": "kube ecosystem",
+      "groupSlug": "kube-ecosystem",
+      "separateMajorMinor": false
     },
     {
       "matchPackageNames": ["ghcr.io/juanfont/headscale"],
