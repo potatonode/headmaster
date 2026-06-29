@@ -1,5 +1,9 @@
 use std::collections::BTreeMap;
 
+use k8s_ext::{
+    ContainerExt, ContainerPortExt, EnvVarExt, PodSpecExt, PodTemplateSpecExt, ProbeExt,
+    SecretEnvSourceExt, SecretExt, ServiceExt, ServicePortExt, StatefulSetExt, VolumeMountExt,
+};
 use k8s_openapi::api::apps::v1::StatefulSet;
 use k8s_openapi::api::core::v1::{
     Container, ContainerPort, EnvVar, PersistentVolumeClaim, PersistentVolumeClaimSpec,
@@ -8,10 +12,6 @@ use k8s_openapi::api::core::v1::{
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use k8s_openapi_ext::{
-    ContainerExt, ContainerPortExt, EnvVarExt, PodSpecExt, PodTemplateSpecExt, ProbeExt, SecretExt,
-    ServiceExt, ServicePortExt, StatefulSetExt,
-};
 use kube::api::Api;
 use rand::Rng;
 
@@ -54,21 +54,11 @@ pub(super) async fn ensure_scim(
         .drop_capabilities(["ALL"])
         .env(scim_env)
         .env_from([
-            SecretEnvSource {
-                name: format!("headscale-api-key-{instance}"),
-                optional: Some(false),
-            },
-            SecretEnvSource {
-                name: format!("headscale-scim-token-{instance}"),
-                optional: Some(false),
-            },
+            SecretEnvSource::required(format!("headscale-api-key-{instance}")),
+            SecretEnvSource::required(format!("headscale-scim-token-{instance}")),
         ])
         .ports([ContainerPort::tcp(8081).name("scim")])
-        .volume_mounts([VolumeMount {
-            name: "data".into(),
-            mount_path: "/data".into(),
-            ..Default::default()
-        }])
+        .volume_mounts([VolumeMount::new("/data", "data")])
         .readiness_probe(
             Probe::http_get("/readyz", "scim")
                 .initial_delay_seconds(5)

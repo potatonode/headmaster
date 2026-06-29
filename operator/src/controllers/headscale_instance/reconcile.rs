@@ -3,12 +3,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
+use k8s_ext::{ServiceExt, ServicePortExt, StatefulSetGetExt};
 use k8s_openapi::api::apps::v1::StatefulSet;
 use k8s_openapi::api::core::v1::{
     ConfigMap, PersistentVolumeClaim, Service, ServicePort, ServiceSpec,
 };
 use k8s_openapi::api::networking::v1::Ingress;
-use k8s_openapi_ext::{ServiceExt, ServicePortExt, StatefulSetGetExt};
 use kube::api::{Api, ListParams, Patch, PatchParams};
 use kube::runtime::controller::Action;
 use kube::runtime::finalizer::{Event as Finalizer, finalizer};

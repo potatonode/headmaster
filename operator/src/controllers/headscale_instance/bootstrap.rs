@@ -1,5 +1,5 @@
+use k8s_ext::SecretExt;
 use k8s_openapi::api::core::v1::{Pod, Secret};
-use k8s_openapi_ext::SecretExt;
 use kube::api::{Api, AttachParams};
 use tokio::io::AsyncReadExt;
 

@@ -1,17 +1,17 @@
 use std::collections::BTreeMap;
 
-use k8s_openapi::api::apps::v1::StatefulSet;
-use k8s_openapi::api::core::v1::{
-    ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, EmptyDirVolumeSource,
-    PersistentVolumeClaim, PersistentVolumeClaimSpec, PodSecurityContext, PodSpec, PodTemplateSpec,
-    Probe, ResourceRequirements, SeccompProfile, Volume, VolumeMount, VolumeResourceRequirements,
-};
-use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use k8s_openapi_ext::{
+use k8s_ext::{
     ConfigMapExt, ConfigMapVolumeSourceExt, ContainerExt, ContainerPortExt, PodSpecExt,
     PodTemplateSpecExt, ProbeExt, StatefulSetExt, VolumeExt, VolumeMountExt,
 };
+use k8s_openapi::api::apps::v1::StatefulSet;
+use k8s_openapi::api::core::v1::{
+    ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, PersistentVolumeClaim,
+    PersistentVolumeClaimSpec, PodSecurityContext, PodSpec, PodTemplateSpec, Probe,
+    ResourceRequirements, SeccompProfile, Volume, VolumeMount, VolumeResourceRequirements,
+};
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use sha2::{Digest, Sha256};
 
 use super::{PORT_GRPC, PORT_HTTP, PORT_METRICS};
@@ -197,28 +197,13 @@ pub(super) fn desired_statefulset(
                                 VolumeMount::new("/etc/headscale/config.yaml", &config_volume)
                                     .read_only()
                                     .sub_path("config.yaml"),
-                                VolumeMount {
-                                    name: "data".into(),
-                                    mount_path: "/var/lib/headscale".into(),
-                                    ..Default::default()
-                                },
-                                VolumeMount {
-                                    name: "var-run-headscale".into(),
-                                    mount_path: "/var/run/headscale".into(),
-                                    ..Default::default()
-                                },
+                                VolumeMount::new("/var/lib/headscale", "data"),
+                                VolumeMount::new("/var/run/headscale", "var-run-headscale"),
                             ])
                             .resource_requests(resources.requests.unwrap_or_default())
                             .resource_limits(resources.limits.unwrap_or_default()),
                     )
-                    .volumes([
-                        config_volume,
-                        Volume {
-                            name: "var-run-headscale".into(),
-                            empty_dir: Some(EmptyDirVolumeSource::default()),
-                            ..Default::default()
-                        },
-                    ])
+                    .volumes([config_volume, Volume::emptydir("var-run-headscale")])
                 }),
         )
         .volume_claim_templates([PersistentVolumeClaim {

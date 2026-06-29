@@ -5,7 +5,7 @@ pub const FIELD_MANAGER: &str = "headmaster";
 pub const FINALIZER: &str = "headmaster.potatonode.github.io/cleanup";
 
 pub mod labels {
-    pub use k8s_openapi_ext::label::{APP_INSTANCE, APP_MANAGED_BY, APP_NAME};
+    pub use k8s_ext::label::{APP_INSTANCE, APP_MANAGED_BY, APP_NAME};
 
     pub const MANAGED_BY_VALUE: &str = "headmaster";
     pub const INGRESS_NAME: &str = "headmaster.potatonode.github.io/ingress-name";
