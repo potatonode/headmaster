@@ -93,7 +93,7 @@ async fn server() -> &'static envtest::Server {
             // built-in types become ready earlier, so probing CRDs alone is not
             // sufficient to confirm that custom-resource storage is ready.
             let probe: Api<operator::types::HeadscaleInstance> =
-                Api::all(server.client().expect("failed to build probe client"));
+                Api::all(build_client(&server).await);
             retry_on_429(|| async { probe.list(&Default::default()).await.map(|_| ()) })
                 .await
                 .expect("envtest CRD storage ready check");
@@ -121,10 +121,16 @@ fn destroy_server() {
 /// Call once at the top of each test; the client's connection pool is tied to
 /// that test's tokio runtime and is cleaned up when the test finishes.
 pub async fn client() -> Client {
-    server()
+    build_client(server().await).await
+}
+
+async fn build_client(server: &envtest::Server) -> Client {
+    let kubeconfig = kube::config::Kubeconfig::from_yaml(server.as_ref())
+        .expect("failed to parse envtest kubeconfig");
+    let config = kube::Config::from_custom_kubeconfig(kubeconfig, &Default::default())
         .await
-        .client()
-        .expect("failed to build kube client")
+        .expect("failed to build kube config");
+    Client::try_from(config).expect("failed to build kube client")
 }
 
 // ---- namespace helpers -----------------------------------------------------
