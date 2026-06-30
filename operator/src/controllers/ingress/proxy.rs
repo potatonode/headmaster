@@ -1,3 +1,8 @@
+//! Builds and applies all Kubernetes resources for a Tailscale proxy:
+//! the WireGuard NodePort Service, state Secret, serve ConfigMap, RBAC
+//! (ServiceAccount, Role, RoleBinding), and the proxy StatefulSet itself.
+//! Also handles route collection from Ingress rules and status patching.
+
 use k8s_ext::{
     ConfigMapExt, ConfigMapVolumeSourceExt, ContainerExt, EnvVarExt, PodSpecExt,
     PodTemplateSpecExt, PolicyRuleExt, RoleBindingExt, RoleExt, SecretExt, ServiceAccountExt,
@@ -23,6 +28,13 @@ use crate::controllers::applier::ChildApplier;
 const WIREGUARD_POD_PORT: i32 = 41641;
 const SERVE_CONFIG_MOUNT: &str = "/etc/serve";
 const SERVE_CONFIG_PATH: &str = "/etc/serve/serve.json";
+const PROXY_COMPONENT: &str = "tailscale-proxy";
+
+/// A single proxy route: a URL path prefix mapped to a cluster-internal backend URL.
+pub(super) struct ProxyRoute {
+    pub(super) path: String,
+    pub(super) backend_url: String,
+}
 
 pub(super) async fn apply_wireguard_service(
     child: &ChildApplier<'_>,
@@ -30,7 +42,7 @@ pub(super) async fn apply_wireguard_service(
 ) -> Result<i32, Error> {
     child
         .apply_service(
-            "tailscale-proxy",
+            PROXY_COMPONENT,
             Service::new(&names.wg_service_name).spec(ServiceSpec {
                 type_: Some(Service::NODE_PORT.to_string()),
                 external_traffic_policy: Some("Local".to_string()),
@@ -61,7 +73,7 @@ pub(super) async fn ensure_state_secret(
 ) -> Result<Secret, Error> {
     child
         .apply(
-            "tailscale-proxy",
+            PROXY_COMPONENT,
             Secret::new(&names.state_secret_name).data([(
                 "headscale_ref",
                 ByteString(headscale_ref.as_bytes().to_vec()),
@@ -89,7 +101,7 @@ pub(super) async fn collect_ingress_routes(
     client: &Client,
     ingress: &Ingress,
     ns: &str,
-) -> Result<Vec<(String, String)>, NoPathRules> {
+) -> Result<Vec<ProxyRoute>, NoPathRules> {
     let paths: Vec<_> = ingress
         .spec
         .as_ref()
@@ -103,7 +115,7 @@ pub(super) async fn collect_ingress_routes(
         return Err(NoPathRules);
     }
 
-    let mut routes: Vec<(String, String)> = Vec::new();
+    let mut routes: Vec<ProxyRoute> = Vec::new();
     for p in paths {
         let Some(svc) = p.backend.service.as_ref() else {
             continue;
@@ -122,12 +134,12 @@ pub(super) async fn collect_ingress_routes(
             continue;
         };
         let path = p.path.clone().unwrap_or_else(|| "/".to_string());
-        routes.push((
+        routes.push(ProxyRoute {
             path,
-            format!("http://{}.{ns}.svc.cluster.local:{port}", svc.name),
-        ));
+            backend_url: format!("http://{}.{ns}.svc.cluster.local:{port}", svc.name),
+        });
     }
-    routes.sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
+    routes.sort_by_key(|r| std::cmp::Reverse(r.path.len()));
     Ok(routes)
 }
 
@@ -175,13 +187,13 @@ pub(super) async fn apply_serve_configmap(
     child: &ChildApplier<'_>,
     names: &ProxyNames,
     tailnet_fqdn: &str,
-    routes: &[(String, String)],
+    routes: &[ProxyRoute],
     accept_app_caps: &[String],
 ) -> Result<(), Error> {
     let serve_json = build_serve_json(tailnet_fqdn, routes, accept_app_caps);
     child
         .apply(
-            "tailscale-proxy",
+            PROXY_COMPONENT,
             ConfigMap::new(&names.serve_configmap_name).data([(
                 "serve.json",
                 serde_json::to_string_pretty(&serve_json)
@@ -194,17 +206,17 @@ pub(super) async fn apply_serve_configmap(
 
 fn build_serve_json(
     tailnet_fqdn: &str,
-    routes: &[(String, String)],
+    routes: &[ProxyRoute],
     accept_app_caps: &[String],
 ) -> serde_json::Value {
     let handlers: serde_json::Map<String, serde_json::Value> = routes
         .iter()
-        .map(|(path, url)| {
-            let mut handler = serde_json::json!({ "Proxy": url });
+        .map(|r| {
+            let mut handler = serde_json::json!({ "Proxy": r.backend_url });
             if !accept_app_caps.is_empty() {
                 handler["AcceptAppCaps"] = serde_json::json!(accept_app_caps);
             }
-            (path.clone(), handler)
+            (r.path.clone(), handler)
         })
         .collect();
     serde_json::json!({
@@ -222,7 +234,7 @@ pub(super) async fn apply_proxy_rbac(
     names: &ProxyNames,
 ) -> Result<(), Error> {
     child
-        .apply("tailscale-proxy", ServiceAccount::new(&names.proxy_name))
+        .apply(PROXY_COMPONENT, ServiceAccount::new(&names.proxy_name))
         .await?;
 
     let role = Role::new(&names.proxy_name).rules([
@@ -236,11 +248,11 @@ pub(super) async fn apply_proxy_rbac(
             .resources(["events"])
             .verbs(["create", "patch"]),
     ]);
-    child.apply("tailscale-proxy", role.clone()).await?;
+    child.apply(PROXY_COMPONENT, role.clone()).await?;
 
     child
         .apply(
-            "tailscale-proxy",
+            PROXY_COMPONENT,
             RoleBinding::new(&names.proxy_name, &role).subjects([Subject::service_account(
                 &names.proxy_name,
                 &child.namespace,
@@ -311,7 +323,7 @@ pub(super) async fn apply_proxy_statefulset(
     };
     child
         .apply_statefulset(
-            "tailscale-proxy",
+            PROXY_COMPONENT,
             StatefulSet::new(&names.proxy_name)
                 .replicas(1)
                 .service_name(&names.wg_service_name)
@@ -356,10 +368,10 @@ mod tests {
 
     #[test]
     fn serve_json_single_route() {
-        let routes = vec![(
-            "/".to_string(),
-            "http://svc.ns.svc.cluster.local:80".to_string(),
-        )];
+        let routes = vec![ProxyRoute {
+            path: "/".to_string(),
+            backend_url: "http://svc.ns.svc.cluster.local:80".to_string(),
+        }];
         let json = build_serve_json("my-app.ts.example.com", &routes, &[]);
         let handlers = &json["Web"]["my-app.ts.example.com:80"]["Handlers"];
         assert_eq!(handlers["/"]["Proxy"], "http://svc.ns.svc.cluster.local:80");
@@ -370,14 +382,14 @@ mod tests {
         // Routes are passed shortest-first; collect_ingress_routes would sort them
         // longest-first before calling build_serve_json, so simulate that here.
         let routes = vec![
-            (
-                "/auth/".to_string(),
-                "http://auth.ns.svc.cluster.local:8080".to_string(),
-            ),
-            (
-                "/".to_string(),
-                "http://main.ns.svc.cluster.local:80".to_string(),
-            ),
+            ProxyRoute {
+                path: "/auth/".to_string(),
+                backend_url: "http://auth.ns.svc.cluster.local:8080".to_string(),
+            },
+            ProxyRoute {
+                path: "/".to_string(),
+                backend_url: "http://main.ns.svc.cluster.local:80".to_string(),
+            },
         ];
         let json = build_serve_json("my-app.ts.example.com", &routes, &[]);
 
@@ -418,10 +430,10 @@ mod tests {
 
     #[test]
     fn serve_json_with_accept_app_caps() {
-        let routes = vec![(
-            "/".to_string(),
-            "http://svc.ns.svc.cluster.local:80".to_string(),
-        )];
+        let routes = vec![ProxyRoute {
+            path: "/".to_string(),
+            backend_url: "http://svc.ns.svc.cluster.local:80".to_string(),
+        }];
         let caps = vec![
             "myapp/cap/admin".to_string(),
             "myapp/cap/viewer".to_string(),
@@ -437,10 +449,10 @@ mod tests {
 
     #[test]
     fn serve_json_no_accept_app_caps_key_when_empty() {
-        let routes = vec![(
-            "/".to_string(),
-            "http://svc.ns.svc.cluster.local:80".to_string(),
-        )];
+        let routes = vec![ProxyRoute {
+            path: "/".to_string(),
+            backend_url: "http://svc.ns.svc.cluster.local:80".to_string(),
+        }];
         let json = build_serve_json("my-app.ts.example.com", &routes, &[]);
         let handler = &json["Web"]["my-app.ts.example.com:80"]["Handlers"]["/"];
         assert!(
@@ -552,10 +564,16 @@ mod tests {
         let routes = collect_ingress_routes(&client, &ingress, "default")
             .await
             .unwrap();
-        assert_eq!(routes[0].0, "/api/");
-        assert_eq!(routes[0].1, "http://api.default.svc.cluster.local:8080");
-        assert_eq!(routes[1].0, "/");
-        assert_eq!(routes[1].1, "http://web.default.svc.cluster.local:80");
+        assert_eq!(routes[0].path, "/api/");
+        assert_eq!(
+            routes[0].backend_url,
+            "http://api.default.svc.cluster.local:8080"
+        );
+        assert_eq!(routes[1].path, "/");
+        assert_eq!(
+            routes[1].backend_url,
+            "http://web.default.svc.cluster.local:80"
+        );
     }
 
     #[tokio::test]
@@ -599,8 +617,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(routes.len(), 1, "named port must produce exactly one route");
-        assert_eq!(routes[0].0, "/");
-        assert_eq!(routes[0].1, "http://web.default.svc.cluster.local:80");
+        assert_eq!(routes[0].path, "/");
+        assert_eq!(
+            routes[0].backend_url,
+            "http://web.default.svc.cluster.local:80"
+        );
     }
 
     #[tokio::test]

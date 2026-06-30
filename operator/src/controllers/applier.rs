@@ -1,3 +1,7 @@
+//! SSA helpers for applying child Kubernetes resources. `ChildApplier` stamps
+//! namespace, owner references, and standard `app.kubernetes.io` labels on
+//! every resource before sending the SSA patch.
+
 use std::collections::BTreeMap;
 
 use k8s_openapi::NamespaceResourceScope;
@@ -57,7 +61,7 @@ impl<'a> Applier<'a> {
 
 /// SSA helper for child resources. Stamps namespace, owner reference, and standard
 /// labels (`app.kubernetes.io/name`, `instance`, `managed-by`) on every resource it
-/// applies. `name` sets `app.kubernetes.io/name` (`headscale`, `scim`, etc.).
+/// applies. `component` sets `app.kubernetes.io/name` (`headscale`, `scim`, etc.).
 /// Extra labels from `spec.labels` are merged first; operator labels always win.
 pub(super) struct ChildApplier<'a> {
     pub(super) client: &'a Client,
@@ -118,9 +122,9 @@ impl<'a> ChildApplier<'a> {
 
     /// Stable label subset safe for use as StatefulSet `match_labels` and Service
     /// `selector` — excludes user-supplied labels which are immutable after creation.
-    pub fn selector_labels(&self, name: &str) -> BTreeMap<String, String> {
+    pub fn selector_labels(&self, component: &str) -> BTreeMap<String, String> {
         BTreeMap::from([
-            (labels::APP_NAME.to_string(), name.to_string()),
+            (labels::APP_NAME.to_string(), component.to_string()),
             (labels::APP_INSTANCE.to_string(), self.instance.clone()),
             (
                 labels::APP_MANAGED_BY.to_string(),
@@ -130,9 +134,9 @@ impl<'a> ChildApplier<'a> {
     }
 
     /// SSA-patches `resource` after stamping namespace, owner reference, and labels.
-    /// `name` becomes the `app.kubernetes.io/name` label value; the resource's
+    /// `component` becomes the `app.kubernetes.io/name` label value; the resource's
     /// own `metadata.name` determines the API object being patched.
-    pub async fn apply<T>(&self, name: &str, mut resource: T) -> Result<(), kube::Error>
+    pub async fn apply<T>(&self, component: &str, mut resource: T) -> Result<(), kube::Error>
     where
         T: Resource<DynamicType = (), Scope = NamespaceResourceScope>
             + Serialize
@@ -149,7 +153,7 @@ impl<'a> ChildApplier<'a> {
             let lbs = meta.labels.get_or_insert_default();
             // Extra labels first; operator labels below always win.
             lbs.extend(self.extra_labels.clone());
-            lbs.insert(labels::APP_NAME.to_string(), name.to_string());
+            lbs.insert(labels::APP_NAME.to_string(), component.to_string());
             lbs.insert(labels::APP_INSTANCE.to_string(), self.instance.clone());
             lbs.insert(
                 labels::APP_MANAGED_BY.to_string(),
@@ -167,10 +171,10 @@ impl<'a> ChildApplier<'a> {
     /// selector labels into the pod template so pods satisfy the selector.
     pub async fn apply_statefulset(
         &self,
-        name: &str,
+        component: &str,
         mut sts: StatefulSet,
     ) -> Result<(), kube::Error> {
-        let selector = self.selector_labels(name);
+        let selector = self.selector_labels(component);
         let spec = sts
             .spec
             .as_mut()
@@ -185,19 +189,23 @@ impl<'a> ChildApplier<'a> {
             .labels
             .get_or_insert_default()
             .extend(selector);
-        self.apply(name, sts).await
+        self.apply(component, sts).await
     }
 
     /// Like `apply`, but also stamps `selector` on the Service spec so the caller
     /// doesn't need to compute or pass selector labels manually.
-    pub async fn apply_service(&self, name: &str, mut svc: Service) -> Result<(), kube::Error> {
-        let selector = self.selector_labels(name);
+    pub async fn apply_service(
+        &self,
+        component: &str,
+        mut svc: Service,
+    ) -> Result<(), kube::Error> {
+        let selector = self.selector_labels(component);
         let spec = svc
             .spec
             .as_mut()
             .expect("apply_service: Service must have a spec");
         spec.selector.get_or_insert_default().extend(selector);
-        self.apply(name, svc).await
+        self.apply(component, svc).await
     }
 
     #[cfg(test)]

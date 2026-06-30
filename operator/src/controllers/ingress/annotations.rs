@@ -1,3 +1,6 @@
+//! Parses headmaster-specific annotations from `Ingress` objects into typed
+//! structs (`IngressAnnotations`, `IngressAccessGrant`) for use by the reconciler.
+
 use std::collections::BTreeMap;
 
 use k8s_openapi::api::networking::v1::Ingress;

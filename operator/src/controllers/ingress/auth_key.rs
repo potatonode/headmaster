@@ -1,3 +1,8 @@
+//! Manages the headscale pre-auth key lifecycle for ingress proxy registration.
+//! Creates a short-lived key before the proxy pod starts, and revokes the old
+//! key when the proxy re-registers (the new key is only needed until the proxy
+//! joins the tailnet for the first time).
+
 use std::time::Duration;
 
 use headscale_client::headscale::v1::{

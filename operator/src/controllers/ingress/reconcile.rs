@@ -1,3 +1,7 @@
+//! Main reconcile loop for `Ingress`. Provisions a Tailscale proxy for every
+//! `Ingress` annotated `ingressClassName: headmaster`, and cleans up all proxy
+//! resources (StatefulSet, Service, RBAC, Secrets, ConfigMap) on deletion.
+
 use std::sync::Arc;
 use std::time::Duration;
 
