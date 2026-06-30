@@ -1,3 +1,7 @@
+//! Bootstraps the API key for a new `HeadscaleInstance` by exec-ing into the
+//! headscale pod and running `headscale apikeys create --expiration 876000h` to
+//! generate a ~100-year key, then storing the result in a Secret.
+
 use k8s_ext::SecretExt;
 use k8s_openapi::api::core::v1::{Pod, Secret};
 use kube::api::{Api, AttachParams};

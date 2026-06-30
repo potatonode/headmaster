@@ -1,3 +1,7 @@
+//! Main reconcile loop for `HeadscaleInstance`. Drives the apply/cleanup
+//! lifecycle: ensures the headscale StatefulSet, Service, ConfigMap, API-key
+//! Secret, optional SCIM sidecar, and policy are all in the desired state.
+
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;

@@ -1,3 +1,7 @@
+//! Syncs the headscale ACL policy with the current state of `Ingress` grants
+//! and SCIM groups. Merges operator-managed entries into the live policy while
+//! preserving all other keys (acls, hosts, tagOwners, etc.).
+
 use std::collections::HashSet;
 
 use headscale_client::headscale::v1::{GetPolicyRequest, SetPolicyRequest};

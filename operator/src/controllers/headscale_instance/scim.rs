@@ -1,3 +1,7 @@
+//! Manages the SCIM sidecar for a `HeadscaleInstance`: ensures the
+//! `headmaster-scim` StatefulSet and its bearer-token Secret are present when
+//! `.spec.scim` is configured, and removes them during cleanup.
+
 use std::collections::BTreeMap;
 
 use k8s_ext::{

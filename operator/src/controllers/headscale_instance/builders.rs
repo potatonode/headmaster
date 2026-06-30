@@ -1,3 +1,7 @@
+//! Builds the Kubernetes resource manifests for a `HeadscaleInstance`:
+//! the headscale ConfigMap (config file), desired StatefulSet, and a helper
+//! that validates reserved config keys from user-supplied overrides.
+
 use std::collections::BTreeMap;
 
 use k8s_ext::{
