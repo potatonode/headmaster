@@ -21,11 +21,12 @@ mod ingress;
 #[path = "functional/support.rs"]
 pub mod support;
 
-use envtest::{BinaryAssetsSettings, Environment};
+use envtest::{BinaryAssetsSettings, Environment, Server};
 use k8s_openapi::api::core::v1::Namespace;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use kube::Client;
 use kube::api::{Api, PostParams};
+use kube::config::Kubeconfig;
+use kube::{Client, Config};
 use rustls::crypto::aws_lc_rs as aws_lc_rs_provider;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -93,7 +94,7 @@ async fn server() -> &'static envtest::Server {
             // built-in types become ready earlier, so probing CRDs alone is not
             // sufficient to confirm that custom-resource storage is ready.
             let probe: Api<operator::types::HeadscaleInstance> =
-                Api::all(server.client().expect("failed to build probe client"));
+                Api::all(build_client(&server).await);
             retry_on_429(|| async { probe.list(&Default::default()).await.map(|_| ()) })
                 .await
                 .expect("envtest CRD storage ready check");
@@ -121,10 +122,16 @@ fn destroy_server() {
 /// Call once at the top of each test; the client's connection pool is tied to
 /// that test's tokio runtime and is cleaned up when the test finishes.
 pub async fn client() -> Client {
-    server()
+    build_client(server().await).await
+}
+
+async fn build_client(server: &Server) -> Client {
+    let kubeconfig =
+        Kubeconfig::from_yaml(server.as_ref()).expect("failed to parse envtest kubeconfig");
+    let config = Config::from_custom_kubeconfig(kubeconfig, &Default::default())
         .await
-        .client()
-        .expect("failed to build kube client")
+        .expect("failed to build kube config");
+    Client::try_from(config).expect("failed to build kube client")
 }
 
 // ---- namespace helpers -----------------------------------------------------
