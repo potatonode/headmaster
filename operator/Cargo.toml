@@ -12,7 +12,7 @@ default-run = "operator"
 [dependencies]
 # Kubernetes client and API types
 kube = { version = "4", default-features = false, features = ["runtime", "derive", "ws", "admission", "rustls-tls", "aws-lc-rs"] }
-k8s-openapi = { version = "0.28", features = ["v1_36", "schemars"] }
+k8s-openapi = { version = "0.28", features = ["v1_32", "schemars"] }
 k8s-ext = { path = "../k8s-ext" }
 schemars = "1"
 

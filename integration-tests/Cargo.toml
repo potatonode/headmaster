@@ -6,13 +6,13 @@ publish = false
 
 [dependencies]
 kube = { version = "4", default-features = false, features = ["runtime", "derive", "ws", "rustls-tls", "aws-lc-rs"] }
-k8s-openapi = { version = "0.28", features = ["v1_36"] }
+k8s-openapi = { version = "0.28", features = ["v1_32"] }
 tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 rustls = { version = "0.23", default-features = false }
 dtor = "1"
-envtest = "0.3"
+envtest = { version = "0.3", default-features = false, features = ["r2g"] }
 uuid = { version = "1", features = ["v4"] }
 operator = { path = "../operator" }
 headscale-client = { path = "../headscale-client", features = ["fake-server"] }
