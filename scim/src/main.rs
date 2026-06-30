@@ -6,6 +6,7 @@ mod storage;
 mod types;
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use axum::Router;
 use axum::http::StatusCode;
@@ -19,6 +20,15 @@ use services::{PolicyUserKey, ScimConfig, ScimService};
 
 use shadow_rs::shadow;
 shadow!(build);
+
+const ENV_HEADSCALE_URL: &str = "HEADSCALE_URL";
+const ENV_HEADSCALE_API_KEY: &str = "HEADSCALE_API_KEY";
+const ENV_SCIM_BEARER_TOKEN: &str = "SCIM_BEARER_TOKEN";
+const ENV_SCIM_EXTERNAL_ID_FILE: &str = "SCIM_EXTERNAL_ID_FILE";
+const ENV_SCIM_LISTEN_ADDR: &str = "SCIM_LISTEN_ADDR";
+const ENV_POLICY_USER_KEY: &str = "POLICY_USER_KEY";
+const ENV_OIDC_ISSUER: &str = "OIDC_ISSUER";
+const ENV_EXPIRE_NODES_ON_CHANGE: &str = "EXPIRE_NODES_ON_CHANGE";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -41,13 +51,17 @@ impl Config {
             std::env::var(key).map_err(|_| format!("missing required env var {key}"))
         }
 
+        // Controls which headscale identifier is written into policy group entries.
+        // "email" (default) uses the SCIM user's email; "username" uses the SCIM
+        // userName; "external_id" uses the OIDC ProviderIdentifier (most stable).
+        // See PolicyUserKey in services.rs for details.
         let policy_user_key_str =
-            std::env::var("POLICY_USER_KEY").unwrap_or_else(|_| "email".to_string());
+            std::env::var(ENV_POLICY_USER_KEY).unwrap_or_else(|_| "email".to_string());
         let policy_user_key = match policy_user_key_str.as_str() {
             "email" => PolicyUserKey::Email,
             "username" => PolicyUserKey::Username,
             "external_id" => {
-                let oidc_issuer = require("OIDC_ISSUER")?.trim_end_matches('/').to_string();
+                let oidc_issuer = require(ENV_OIDC_ISSUER)?.trim_end_matches('/').to_string();
                 PolicyUserKey::ExternalId { oidc_issuer }
             }
             other => {
@@ -57,20 +71,23 @@ impl Config {
             }
         };
 
-        let expire_nodes_on_change = std::env::var("EXPIRE_NODES_ON_CHANGE")
+        // When true, all of a user's headscale nodes are expired whenever their
+        // policy identifier changes (e.g. email update). This forces re-auth so
+        // the node picks up the new identifier from headscale.
+        let expire_nodes_on_change = std::env::var(ENV_EXPIRE_NODES_ON_CHANGE)
             .unwrap_or_else(|_| "false".to_string())
             .parse::<bool>()
             .map_err(|_| "invalid EXPIRE_NODES_ON_CHANGE; expected 'true' or 'false'")?;
 
         Ok(Self {
-            headscale_url: require("HEADSCALE_URL")?,
-            headscale_api_key: require("HEADSCALE_API_KEY")?,
-            scim_token: require("SCIM_BEARER_TOKEN")?,
+            headscale_url: require(ENV_HEADSCALE_URL)?,
+            headscale_api_key: require(ENV_HEADSCALE_API_KEY)?,
+            scim_token: require(ENV_SCIM_BEARER_TOKEN)?,
             external_id_file: PathBuf::from(
-                std::env::var("SCIM_EXTERNAL_ID_FILE")
+                std::env::var(ENV_SCIM_EXTERNAL_ID_FILE)
                     .unwrap_or_else(|_| "/data/external-id-map.json".to_string()),
             ),
-            listen_addr: std::env::var("SCIM_LISTEN_ADDR")
+            listen_addr: std::env::var(ENV_SCIM_LISTEN_ADDR)
                 .unwrap_or_else(|_| "0.0.0.0:8081".to_string()),
             scim_config: ScimConfig {
                 policy_user_key,
@@ -80,8 +97,7 @@ impl Config {
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -101,6 +117,11 @@ async fn main() {
             "built from dirty working tree"
         );
     }
+}
+
+#[tokio::main]
+async fn main() {
+    init_tracing();
 
     let config = Config::from_env().unwrap_or_else(|e| {
         tracing::error!("{e}");
@@ -108,8 +129,8 @@ async fn main() {
     });
 
     let channel = Channel::from_shared(config.headscale_url.clone())
-        .expect("HEADSCALE_URL must be a valid URI")
-        .connect_timeout(std::time::Duration::from_secs(10))
+        .expect("HEADSCALE_URL is not a valid URI; must be a scheme://host[:port] string")
+        .connect_timeout(Duration::from_secs(10))
         .connect_lazy();
 
     let client = HeadscaleServiceClient::with_interceptor(
@@ -117,12 +138,13 @@ async fn main() {
         AuthInterceptor::bearer(&config.headscale_api_key),
     );
 
-    let mapping = storage::load_shared(&config.external_id_file)
+    let mapping = storage::Mapping::load(&config.external_id_file)
         .await
         .unwrap_or_else(|e| {
             tracing::error!("failed to load external ID mapping: {e}");
             std::process::exit(1);
         });
+    let mapping = storage::shared(mapping);
 
     let state = AppState {
         scim: ScimService::new(client, mapping, config.scim_config),

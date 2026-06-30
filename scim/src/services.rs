@@ -24,6 +24,12 @@ use crate::types::{
 
 /// Controls which identifier is written into headscale policy group entries
 /// and used to locate a user's headscale account for session management.
+///
+/// `ExternalId` is the most stable option: it uses the OIDC ProviderIdentifier
+/// (a persistent UUID-based URL) so policy entries survive email and username
+/// changes. Prefer it when the IdP supports it (Pocket ID, Authentik, Okta).
+/// `Email` (the default) is the safest fallback for IdPs that don't expose a
+/// stable subject identifier via SCIM.
 #[derive(Clone, Debug, Default)]
 pub enum PolicyUserKey {
     /// Write the user's email: "alice@example.com"
@@ -752,7 +758,8 @@ mod tests {
     ) -> (ScimService, storage::SharedMapping, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mapping.json");
-        let shared = storage::load_shared(&path).await.unwrap();
+        let mapping = storage::Mapping::load(&path).await.unwrap();
+        let shared = storage::shared(mapping);
         let channel = spawn_fake_channel(server).await;
         let client =
             HeadscaleServiceClient::with_interceptor(channel, AuthInterceptor::bearer("test"));

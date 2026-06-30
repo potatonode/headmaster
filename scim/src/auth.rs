@@ -1,3 +1,6 @@
+//! Axum middleware that validates the `Authorization: Bearer <token>` header
+//! against the configured `SCIM_BEARER_TOKEN`. Rejects requests with 401 if
+//! the header is missing or the token does not match.
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
