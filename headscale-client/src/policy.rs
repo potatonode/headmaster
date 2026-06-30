@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use jsonc_parser::ParseOptions;
-use jsonc_parser::cst::{CstInputValue, CstNode, CstRootNode};
+use jsonc_parser::cst::{CstInputValue, CstRootNode};
 use jsonc_parser::{JsonValue, parse_to_value};
 use thiserror::Error;
 
@@ -154,26 +154,61 @@ impl PolicyEditor {
         }
     }
 
-    /// Surgically removes from the `grants` array every entry whose `src` or
-    /// `dst` field contains `group`. Leaves all other grants intact.
-    pub fn remove_grants_referencing_group(&mut self, group: &str) {
+    /// Removes references to `removed_groups` from every `src` and `dst` array
+    /// in `grants`. A grant is removed entirely only when `src` or `dst` becomes
+    /// empty after pruning — preserving grants that still have other members.
+    pub fn prune_grants_for_removed_groups(&mut self, removed_groups: &HashSet<String>) {
         let Some(root_obj) = self.root.object_value() else {
             return;
         };
         let Some(grants_arr) = root_obj.array_value("grants") else {
             return;
         };
-        let elements = grants_arr.elements();
-        let indices_to_remove: Vec<usize> = elements
-            .iter()
-            .enumerate()
-            .filter(|(_, node)| cst_grant_references_group(node, group))
-            .map(|(i, _)| i)
-            .collect();
-        for idx in indices_to_remove.into_iter().rev() {
-            if let Some(element) = elements.get(idx) {
-                element.clone().remove();
+
+        let grants = grants_arr.elements();
+
+        for grant in &grants {
+            let Some(grant_obj) = grant.as_object() else {
+                continue;
+            };
+            for field in ["src", "dst"] {
+                let Some(arr) = grant_obj.array_value(field) else {
+                    continue;
+                };
+                let stale: Vec<_> = arr
+                    .elements()
+                    .into_iter()
+                    .filter(|node| {
+                        node.as_string_lit()
+                            .and_then(|lit| lit.decoded_value().ok())
+                            .map(|s| removed_groups.contains(&s))
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                for node in stale {
+                    node.remove();
+                }
             }
+        }
+
+        // After pruning members, remove grants whose src or dst is now empty.
+        let empty_grants: Vec<_> = grants
+            .iter()
+            .filter(|grant| {
+                let Some(grant_obj) = grant.as_object() else {
+                    return false;
+                };
+                ["src", "dst"].iter().any(|field| {
+                    grant_obj
+                        .array_value(field)
+                        .map(|a| a.elements().is_empty())
+                        .unwrap_or(false)
+                })
+            })
+            .cloned()
+            .collect();
+        for grant in empty_grants.into_iter().rev() {
+            grant.remove();
         }
     }
 }
@@ -181,6 +216,20 @@ impl PolicyEditor {
 impl std::fmt::Display for PolicyEditor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.root.to_string())
+    }
+}
+
+impl Clone for PolicyEditor {
+    fn clone(&self) -> Self {
+        // CstRootNode is Rc-based; derive(Clone) would be a shallow clone that
+        // shares the tree. Round-trip through string for a true deep copy.
+        Self::parse(&self.to_string()).expect("serialized policy must re-parse")
+    }
+}
+
+impl PartialEq for PolicyEditor {
+    fn eq(&self, other: &Self) -> bool {
+        policies_are_semantically_equal(&self.to_string(), &other.to_string())
     }
 }
 
@@ -197,24 +246,6 @@ pub fn policies_are_semantically_equal(a: &str, b: &str) -> bool {
         (Some(parsed_a), Some(parsed_b)) => json_values_equal(parsed_a, &parsed_b),
         _ => a.trim() == b.trim(),
     }
-}
-
-fn cst_grant_references_group(grant: &CstNode, group: &str) -> bool {
-    let Some(grant_obj) = grant.as_object() else {
-        return false;
-    };
-    let field_has_group = |field: &str| {
-        let Some(arr) = grant_obj.array_value(field) else {
-            return false;
-        };
-        arr.elements().into_iter().any(|node| {
-            node.as_string_lit()
-                .and_then(|lit| lit.decoded_value().ok())
-                .map(|s| s == group)
-                .unwrap_or(false)
-        })
-    };
-    field_has_group("src") || field_has_group("dst")
 }
 
 fn json_values_equal<'a, 'b>(a: JsonValue<'a>, b: &JsonValue<'b>) -> bool {
@@ -698,40 +729,63 @@ mod tests {
         );
     }
 
-    // ── remove_grants_referencing_group ───────────────────────────────────────
+    // ── prune_grants_for_removed_groups ──────────────────────────────────────
+
+    fn removed(groups: &[&str]) -> HashSet<String> {
+        groups.iter().map(|s| s.to_string()).collect()
+    }
 
     #[test]
-    fn remove_grants_referencing_group_removes_matched_leaves_others() {
+    fn prune_grants_removes_grant_when_src_becomes_empty() {
         let policy = r#"{
             "grants": [
                 {"src": ["group:eng"], "dst": ["tag:app"], "ip": ["*:*"]},
-                {"src": ["group:ops"], "dst": ["tag:db"], "ip": ["*:*"]},
-                {"src": ["group:eng", "group:ops"], "dst": ["tag:shared"], "ip": ["*:*"]}
+                {"src": ["group:ops"], "dst": ["tag:db"], "ip": ["*:*"]}
             ]
         }"#;
         let mut editor = PolicyEditor::parse(policy).unwrap();
-        editor.remove_grants_referencing_group("group:eng");
-        let result = editor.to_string();
-        let v = parse_hujson(&result);
+        editor.prune_grants_for_removed_groups(&removed(&["group:eng"]));
+        let v = parse_hujson(&editor.to_string());
         let grants = v["grants"].as_array().unwrap();
-        assert_eq!(grants.len(), 1, "only the ops-only grant should remain");
+        assert_eq!(grants.len(), 1);
         assert_eq!(grants[0]["dst"][0], "tag:db");
     }
 
     #[test]
-    fn remove_grants_referencing_group_noop_when_group_absent() {
+    fn prune_grants_prunes_member_from_multi_src_keeps_grant() {
+        let policy = r#"{
+            "grants": [
+                {"src": ["group:eng", "group:ops"], "dst": ["tag:shared"], "ip": ["*:*"]}
+            ]
+        }"#;
+        let mut editor = PolicyEditor::parse(policy).unwrap();
+        editor.prune_grants_for_removed_groups(&removed(&["group:eng"]));
+        let v = parse_hujson(&editor.to_string());
+        let grants = v["grants"].as_array().unwrap();
+        assert_eq!(
+            grants.len(),
+            1,
+            "grant must survive — group:ops still in src"
+        );
+        let src = grants[0]["src"].as_array().unwrap();
+        assert_eq!(src.len(), 1);
+        assert_eq!(src[0], "group:ops");
+    }
+
+    #[test]
+    fn prune_grants_noop_when_group_absent() {
         let policy = r#"{"grants":[{"src":["group:eng"],"dst":["tag:app"],"ip":["*:*"]}]}"#;
         let mut editor = PolicyEditor::parse(policy).unwrap();
-        editor.remove_grants_referencing_group("group:ops");
+        editor.prune_grants_for_removed_groups(&removed(&["group:ops"]));
         let v = parse_json(&editor.to_string());
         assert_eq!(v["grants"].as_array().unwrap().len(), 1);
     }
 
     #[test]
-    fn remove_grants_referencing_group_matches_dst() {
+    fn prune_grants_removes_grant_when_dst_becomes_empty() {
         let policy = r#"{"grants":[{"src":["*"],"dst":["group:eng"],"ip":["*:*"]}]}"#;
         let mut editor = PolicyEditor::parse(policy).unwrap();
-        editor.remove_grants_referencing_group("group:eng");
+        editor.prune_grants_for_removed_groups(&removed(&["group:eng"]));
         let v = parse_json(&editor.to_string());
         assert!(v["grants"].as_array().unwrap().is_empty());
     }

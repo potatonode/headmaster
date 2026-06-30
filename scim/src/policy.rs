@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use headscale_client::AuthenticatedClient;
 use headscale_client::headscale::v1::{GetPolicyRequest, SetPolicyRequest};
-use headscale_client::policy::{PolicyEditor, policies_are_semantically_equal};
+use headscale_client::policy::PolicyEditor;
 use tokio::sync::Mutex;
 
 // Re-export so callers that import from this module keep compiling unchanged.
@@ -44,17 +44,26 @@ impl PolicyRepository {
         let mut client = self.headscale.clone();
         let _guard = self.policy_lock.lock().await;
 
-        let policy_str = fetch_policy(&mut client).await?;
+        // PolicyEditor contains Rc internals and is not Send. The block scope
+        // ensures both the fetch await and all PolicyEditor values stay contained:
+        // nothing non-Send is live when set_policy is awaited below.
+        let new_policy_str = {
+            let current = fetch_policy(&mut client).await?;
+            let new = build_new_policy(&current, groups);
+            if current == new {
+                None
+            } else {
+                Some(new.to_string())
+            }
+        };
 
-        let new_policy = build_new_policy(&policy_str, groups)?;
-
-        if policies_are_semantically_equal(policy_str.trim(), new_policy.trim()) {
-            return Ok(());
+        if let Some(new_policy_str) = new_policy_str {
+            client
+                .set_policy(SetPolicyRequest {
+                    policy: new_policy_str,
+                })
+                .await?;
         }
-
-        client
-            .set_policy(SetPolicyRequest { policy: new_policy })
-            .await?;
         Ok(())
     }
 }
@@ -62,38 +71,35 @@ impl PolicyRepository {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn build_new_policy(
-    policy_str: &str,
+    current: &PolicyEditor,
     groups: &[(String, Vec<PolicyMember>)],
-) -> Result<String, ScimError> {
-    let mut editor =
-        PolicyEditor::parse(policy_str).map_err(|e| ScimError::internal(e.to_string()))?;
+) -> PolicyEditor {
+    let mut new_policy = current.clone();
 
-    // Identify which groups are being removed so we can clean up their grants.
-    let old_groups: HashSet<String> = editor.known_groups();
+    let old_groups: HashSet<String> = new_policy.known_groups();
     let new_group_names: HashSet<String> = groups
         .iter()
         .map(|(name, _)| format!("group:{name}"))
         .collect();
-    let removed_groups: Vec<String> = old_groups.difference(&new_group_names).cloned().collect();
+    let removed_groups: HashSet<String> =
+        old_groups.difference(&new_group_names).cloned().collect();
 
-    // Rewrite the groups section.
-    editor.set_groups(groups);
+    new_policy.set_groups(groups);
 
-    // Remove grants that reference any deleted group so operator-written grants
-    // don't dangle when SCIM removes a group between operator reconciles.
-    for group in &removed_groups {
-        editor.remove_grants_referencing_group(group);
-    }
+    // Prune references to deleted groups from grants; remove a grant entirely
+    // only when its src or dst becomes empty after pruning.
+    new_policy.prune_grants_for_removed_groups(&removed_groups);
 
-    Ok(editor.to_string())
+    new_policy
 }
 
-pub(crate) async fn fetch_policy(client: &mut AuthenticatedClient) -> Result<String, ScimError> {
-    match client.get_policy(GetPolicyRequest {}).await {
-        Ok(resp) => Ok(resp.into_inner().policy),
-        Err(s) if s.message().contains("policy not found") => Ok(String::new()),
-        Err(s) => Err(s.into()),
-    }
+async fn fetch_policy(client: &mut AuthenticatedClient) -> Result<PolicyEditor, ScimError> {
+    let policy_str = match client.get_policy(GetPolicyRequest {}).await {
+        Ok(resp) => resp.into_inner().policy,
+        Err(s) if s.message().contains("policy not found") => String::new(),
+        Err(s) => return Err(s.into()),
+    };
+    PolicyEditor::parse(&policy_str).map_err(|e| ScimError::internal(e.to_string()))
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -118,6 +124,10 @@ mod tests {
         }
     }
 
+    fn p(s: &str) -> PolicyEditor {
+        PolicyEditor::parse(s).unwrap()
+    }
+
     fn parse_hujson(s: &str) -> serde_json::Value {
         jsonc_parser::parse_to_serde_value::<serde_json::Value>(s, &ParseOptions::default())
             .unwrap()
@@ -131,8 +141,11 @@ mod tests {
 
     #[test]
     fn set_groups_builds_fresh_on_empty_policy() {
-        let policy =
-            build_new_policy("", &[("eng".to_string(), vec![email("alice@example.com")])]).unwrap();
+        let policy = build_new_policy(
+            &p(""),
+            &[("eng".to_string(), vec![email("alice@example.com")])],
+        )
+        .to_string();
         let v = parse_json(&policy);
         assert_eq!(v["groups"]["group:eng"][0], "alice@example.com");
     }
@@ -141,10 +154,10 @@ mod tests {
     fn set_groups_preserves_other_keys() {
         let policy_str = r#"{"acls": [{"action": "accept"}], "groups": {"group:old": []}}"#;
         let policy = build_new_policy(
-            policy_str,
+            &p(policy_str),
             &[("eng".to_string(), vec![email("alice@example.com")])],
         )
-        .unwrap();
+        .to_string();
         let v = parse_json(&policy);
         assert!(v["acls"].is_array(), "acls must be preserved");
         assert!(v["groups"]["group:old"].is_null(), "old group must be gone");
@@ -154,7 +167,7 @@ mod tests {
     #[test]
     fn set_groups_with_empty_groups_removes_key() {
         let policy_str = r#"{"groups": {"group:eng": ["alice@example.com"]}}"#;
-        let policy = build_new_policy(policy_str, &[]).unwrap();
+        let policy = build_new_policy(&p(policy_str), &[]).to_string();
         let v = parse_json(&policy);
         assert!(
             v["groups"].is_null(),
@@ -164,7 +177,7 @@ mod tests {
 
     #[test]
     fn set_groups_empty_policy_empty_groups_stays_empty() {
-        let policy = build_new_policy("", &[]).unwrap();
+        let policy = build_new_policy(&p(""), &[]).to_string();
         let v = parse_json(&policy);
         assert!(
             v["groups"].is_null(),
@@ -175,7 +188,7 @@ mod tests {
     #[test]
     fn set_groups_external_id_token_with_block_comment() {
         let policy = build_new_policy(
-            "",
+            &p(""),
             &[(
                 "eng".to_string(),
                 vec![ext_id(
@@ -184,7 +197,7 @@ mod tests {
                 )],
             )],
         )
-        .unwrap();
+        .to_string();
         assert!(
             policy.contains("/* alice@example.com, alice */"),
             "block comment must appear in raw policy output: {policy}"
@@ -198,7 +211,8 @@ mod tests {
 
     #[test]
     fn set_groups_username_token_no_comment() {
-        let policy = build_new_policy("", &[("eng".to_string(), vec![email("alice@")])]).unwrap();
+        let policy =
+            build_new_policy(&p(""), &[("eng".to_string(), vec![email("alice@")])]).to_string();
         let v = parse_json(&policy);
         assert_eq!(v["groups"]["group:eng"][0], "alice@");
         assert!(!policy.contains("/*"), "no block comment in Username mode");
@@ -207,7 +221,7 @@ mod tests {
     #[test]
     fn set_groups_multiple_members_mixed_comments() {
         let policy = build_new_policy(
-            "",
+            &p(""),
             &[(
                 "eng".to_string(),
                 vec![
@@ -216,7 +230,7 @@ mod tests {
                 ],
             )],
         )
-        .unwrap();
+        .to_string();
         assert!(policy.contains("/* bob@example.com, bob */"));
         let v = parse_hujson(&policy);
         let arr = v["groups"]["group:eng"].as_array().unwrap();
@@ -228,13 +242,13 @@ mod tests {
     #[test]
     fn set_groups_token_with_quotes_and_backslashes() {
         let policy = build_new_policy(
-            "",
+            &p(""),
             &[(
                 "eng".to_string(),
                 vec![ext_id(r#"https://idp/user"name\path@"#, "display name")],
             )],
         )
-        .unwrap();
+        .to_string();
         let v = parse_hujson(&policy);
         assert_eq!(
             v["groups"]["group:eng"][0],
@@ -245,13 +259,13 @@ mod tests {
     #[test]
     fn set_groups_comment_with_close_sequence_is_sanitized() {
         let policy = build_new_policy(
-            "",
+            &p(""),
             &[(
                 "eng".to_string(),
                 vec![ext_id("https://idp/uuid@", "C*/O, alice*/evil")],
             )],
         )
-        .unwrap();
+        .to_string();
         let comment_body = policy
             .split("/* ")
             .nth(1)
@@ -278,10 +292,10 @@ mod tests {
         }"#;
         // Remove group:eng but keep group:ops
         let new_policy = build_new_policy(
-            policy_str,
+            &p(policy_str),
             &[("ops".to_string(), vec![email("bob@example.com")])],
         )
-        .unwrap();
+        .to_string();
         let v = parse_hujson(&new_policy);
         let grants = v["grants"].as_array().unwrap();
         assert_eq!(grants.len(), 1, "only the ops grant should remain");
