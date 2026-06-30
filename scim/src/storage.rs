@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use jiff::Timestamp;
 use tokio::io::AsyncWriteExt;
@@ -202,11 +202,6 @@ pub type SharedMapping = std::sync::Arc<Mutex<Mapping>>;
 
 pub fn shared(mapping: Mapping) -> SharedMapping {
     std::sync::Arc::new(Mutex::new(mapping))
-}
-
-pub async fn load_shared(path: &Path) -> Result<SharedMapping, std::io::Error> {
-    let m = Mapping::load(path).await?;
-    Ok(shared(m))
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
