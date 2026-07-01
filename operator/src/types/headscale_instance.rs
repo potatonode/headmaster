@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::core::v1::ResourceRequirements;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition;
-use kube::CustomResource;
+use kube::{CustomResource, KubeSchema};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -70,14 +70,9 @@ pub struct HeadscaleInstanceSpec {
 }
 
 /// SCIM 2.0 server configuration for this instance.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, KubeSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(extend("x-kubernetes-validations" = [
-    {
-        "rule": "!has(self.policyUserKey) || self.policyUserKey != 'external_id' || has(self.oidcIssuer)",
-        "message": "oidcIssuer is required when policyUserKey is 'external_id'"
-    }
-]))]
+#[x_kube(validation = Rule::new("!has(self.policyUserKey) || self.policyUserKey != 'external_id' || has(self.oidcIssuer)").message("oidcIssuer is required when policyUserKey is 'external_id'"))]
 pub struct ScimSpec {
     /// Persistent storage for the external-ID mapping file.
     pub storage: StorageSpec,
