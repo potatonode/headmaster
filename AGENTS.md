@@ -25,6 +25,7 @@ Two binaries ship in a single Docker image:
 | `operator`          | Main binary. CRD types, controllers, webhook, health server.                                           |
 | `headscale-client`  | Typed gRPC client for the headscale API (vendored protos). Has a `fake-server` feature for unit tests. |
 | `scim`              | The `headmaster-scim` binary. Standalone HTTP server; shares `headscale-client`.                       |
+| `k8s-ext`           | Fluent builder and accessor extension traits for `k8s-openapi` resource types.                         |
 | `integration-tests` | Functional and e2e test suites. Not published (`publish = false`).                                     |
 
 ## Controllers

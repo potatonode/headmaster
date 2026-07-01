@@ -14,5 +14,3 @@
 - HeadscaleInstance reconcile requeue interval (currently 60s): consider making this
   configurable via the CR spec or a controller flag so operators can tune the SCIM
   convergence latency vs. API-server load trade-off
-- update AGENTS.md
-- add README to all crates (k8s-ext, integration-tests, etc)
