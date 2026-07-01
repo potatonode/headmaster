@@ -492,7 +492,7 @@ impl ScimService {
 
     /// Rebuilds the `groups` section of the headscale policy from the mapping.
     /// Inactive users are excluded from all group entries.
-    async fn reconcile_groups_policy(&self) -> Result<(), ScimError> {
+    pub(crate) async fn reconcile_groups_policy(&self) -> Result<(), ScimError> {
         let groups: Vec<(String, Vec<PolicyMember>)> = {
             let mapping = self.mapping.lock().await;
             mapping
@@ -531,7 +531,7 @@ impl ScimService {
                 })
                 .collect()
         }; // mapping lock released here, before any network I/O
-        self.policy.reconcile_groups(&groups).await
+        self.policy.set_group_membership(&groups).await
     }
 
     /// Expires all headscale nodes owned by the user. Uses the pre-change

@@ -31,6 +31,9 @@ impl PolicyEditor {
     /// key is removed rather than written as `{}`.
     pub fn set_groups(&mut self, groups: &[(String, Vec<PolicyMember>)]) {
         let root_obj = self.root.object_value_or_set();
+        // Remove the existing property so we replace rather than merge: if we
+        // called object_value_or_set("groups") on an existing object it would
+        // append new keys alongside the old ones instead of replacing them.
         if let Some(prop) = root_obj.get("groups") {
             prop.remove();
         }
@@ -39,20 +42,22 @@ impl PolicyEditor {
             for (name, members) in groups {
                 let key = format!("group:{name}");
                 let prop = groups_obj.append(&key, CstInputValue::Array(vec![]));
-                if let Some(arr) = prop.array_value() {
-                    for member in members {
-                        let node = arr.append(CstInputValue::String(member.token.clone()));
-                        if let Some(ref comment) = member.comment
-                            && let Some(lit) = node.as_string_lit()
-                        {
-                            // Block comment (/* */) required — a line comment (//)
-                            // would consume the trailing comma, breaking JSON structure.
-                            // Sanitize */ to prevent early comment close.
-                            let safe = comment.replace("*/", "* /");
-                            let json_token = serde_json::to_string(&member.token)
-                                .expect("string serialization is infallible");
-                            lit.set_raw_value(format!("{json_token} /* {safe} */"));
-                        }
+                let arr = prop
+                    .array_value()
+                    .expect("property appended as Array must have an array value");
+                for member in members {
+                    let node = arr.append(CstInputValue::String(member.token.clone()));
+                    if let Some(ref comment) = member.comment {
+                        let lit = node
+                            .as_string_lit()
+                            .expect("node appended as String must be a string literal");
+                        // Block comment (/* */) required — a line comment (//)
+                        // would consume the trailing comma, breaking JSON structure.
+                        // Sanitize */ to prevent early comment close.
+                        let safe = comment.replace("*/", "* /");
+                        let json_token = serde_json::to_string(&member.token)
+                            .expect("string serialization is infallible");
+                        lit.set_raw_value(format!("{json_token} /* {safe} */"));
                     }
                 }
             }
@@ -86,8 +91,6 @@ impl PolicyEditor {
         }
     }
 
-    /// Returns the set of group names (e.g. `"group:eng"`) present as keys in
-    /// the `groups` section of the current policy.
     pub fn known_groups(&self) -> HashSet<String> {
         let Some(root_obj) = self.root.object_value() else {
             return HashSet::new();
@@ -103,42 +106,23 @@ impl PolicyEditor {
     }
 
     /// Ensures `tag` is present in `tagOwners` with at least `owners` as
-    /// members. Any existing owners for `tag` are preserved (union semantics).
-    /// If `tag` is absent, it is created. If already present with all owners,
-    /// the property is removed and re-added with the merged array.
+    /// members. Existing owners are preserved in-place (union semantics):
+    /// only genuinely new owners are appended, so inline comments on existing
+    /// entries survive. If `tag` is absent it is created.
     pub fn set_tag_owner(&mut self, tag: &str, owners: &[&str]) {
-        let existing_owners: Vec<String> = self
-            .root
-            .object_value()
-            .and_then(|root_obj| root_obj.object_value("tagOwners"))
-            .and_then(|tag_owners_obj| tag_owners_obj.array_value(tag))
-            .map(|arr| {
-                arr.elements()
-                    .into_iter()
-                    .filter_map(|node| node.as_string_lit()?.decoded_value().ok())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut all_owners: Vec<String> = existing_owners;
-        for &owner in owners {
-            if !all_owners.iter().any(|o| o == owner) {
-                all_owners.push(owner.to_string());
-            }
-        }
-
         let root_obj = self.root.object_value_or_set();
         let tag_owners_obj = root_obj.object_value_or_set("tagOwners");
-        if let Some(prop) = tag_owners_obj.get(tag) {
-            prop.remove();
+        let arr = tag_owners_obj.array_value_or_set(tag);
+        let existing: Vec<String> = arr
+            .elements()
+            .into_iter()
+            .filter_map(|n| n.as_string_lit()?.decoded_value().ok())
+            .collect();
+        for &owner in owners {
+            if !existing.iter().any(|o| o == owner) {
+                arr.append(CstInputValue::String(owner.to_string()));
+            }
         }
-        let owners_arr = CstInputValue::Array(
-            all_owners
-                .iter()
-                .map(|o| CstInputValue::String(o.clone()))
-                .collect(),
-        );
-        tag_owners_obj.append(tag, owners_arr);
     }
 
     /// Appends `grants` to the `grants` array, preserving any grants the user
@@ -154,33 +138,105 @@ impl PolicyEditor {
         }
     }
 
-    /// Surgically removes from the `grants` array every entry whose `src` or
-    /// `dst` field contains `group`. Leaves all other grants intact.
-    pub fn remove_grants_referencing_group(&mut self, group: &str) {
+    /// Returns a snapshot of all grant objects in the `grants` array. The
+    /// returned `Vec` is materialized so callers can remove grants mid-loop
+    /// without iterator invalidation. Each `Grant` re-reads from the CST on
+    /// every method call, so mutations are immediately visible.
+    pub fn grants(&self) -> Vec<Grant> {
         let Some(root_obj) = self.root.object_value() else {
-            return;
+            return Vec::new();
         };
         let Some(grants_arr) = root_obj.array_value("grants") else {
-            return;
+            return Vec::new();
         };
-        let elements = grants_arr.elements();
-        let indices_to_remove: Vec<usize> = elements
-            .iter()
-            .enumerate()
-            .filter(|(_, node)| cst_grant_references_group(node, group))
-            .map(|(i, _)| i)
-            .collect();
-        for idx in indices_to_remove.into_iter().rev() {
-            if let Some(element) = elements.get(idx) {
-                element.clone().remove();
-            }
-        }
+        grants_arr
+            .elements()
+            .into_iter()
+            .filter(|node| node.as_object().is_some())
+            .map(|node| Grant { node })
+            .collect()
     }
 }
 
 impl std::fmt::Display for PolicyEditor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.root.to_string())
+    }
+}
+
+impl Clone for PolicyEditor {
+    fn clone(&self) -> Self {
+        // CstRootNode is Rc-based; derive(Clone) would be a shallow clone that
+        // shares the tree. Round-trip through string for a true deep copy.
+        Self::parse(&self.to_string()).expect("serialized policy must re-parse")
+    }
+}
+
+impl PartialEq for PolicyEditor {
+    fn eq(&self, other: &Self) -> bool {
+        policies_are_semantically_equal(&self.to_string(), &other.to_string())
+    }
+}
+
+pub struct Grant {
+    node: CstNode,
+}
+
+impl Grant {
+    pub fn src(&self) -> Vec<String> {
+        self.field_values("src")
+    }
+
+    pub fn dst(&self) -> Vec<String> {
+        self.field_values("dst")
+    }
+
+    pub fn remove_from_src(&self, value: &str) {
+        self.remove_from_field("src", value);
+    }
+
+    pub fn remove_from_dst(&self, value: &str) {
+        self.remove_from_field("dst", value);
+    }
+
+    pub fn remove(&self) {
+        self.node.clone().remove();
+    }
+
+    fn field_values(&self, field: &str) -> Vec<String> {
+        self.node
+            .as_object()
+            .and_then(|obj| obj.array_value(field))
+            .map(|arr| {
+                arr.elements()
+                    .into_iter()
+                    .filter_map(|node| node.as_string_lit()?.decoded_value().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn remove_from_field(&self, field: &str, value: &str) {
+        let Some(obj) = self.node.as_object() else {
+            return;
+        };
+        let Some(arr) = obj.array_value(field) else {
+            return;
+        };
+
+        let to_remove: Vec<_> = arr
+            .elements()
+            .into_iter()
+            .filter(|node| {
+                node.as_string_lit()
+                    .and_then(|lit| lit.decoded_value().ok())
+                    .map(|decoded| decoded == value)
+                    .unwrap_or(false)
+            })
+            .collect();
+        for node in to_remove {
+            node.remove();
+        }
     }
 }
 
@@ -197,24 +253,6 @@ pub fn policies_are_semantically_equal(a: &str, b: &str) -> bool {
         (Some(parsed_a), Some(parsed_b)) => json_values_equal(parsed_a, &parsed_b),
         _ => a.trim() == b.trim(),
     }
-}
-
-fn cst_grant_references_group(grant: &CstNode, group: &str) -> bool {
-    let Some(grant_obj) = grant.as_object() else {
-        return false;
-    };
-    let field_has_group = |field: &str| {
-        let Some(arr) = grant_obj.array_value(field) else {
-            return false;
-        };
-        arr.elements().into_iter().any(|node| {
-            node.as_string_lit()
-                .and_then(|lit| lit.decoded_value().ok())
-                .map(|s| s == group)
-                .unwrap_or(false)
-        })
-    };
-    field_has_group("src") || field_has_group("dst")
 }
 
 fn json_values_equal<'a, 'b>(a: JsonValue<'a>, b: &JsonValue<'b>) -> bool {
@@ -563,6 +601,21 @@ mod tests {
         assert_eq!(v["tagOwners"]["tag:headmaster"][0], "autogroup:admin");
     }
 
+    #[test]
+    fn set_tag_owner_preserves_inline_comments_on_existing_entries() {
+        let policy = r#"{"tagOwners":{"tag:headmaster":["autogroup:admin" /* keep me */]}}"#;
+        let mut editor = PolicyEditor::parse(policy).unwrap();
+        editor.set_tag_owner("tag:headmaster", &["autogroup:member"]);
+        let result = editor.to_string();
+        assert!(
+            result.contains("/* keep me */"),
+            "inline comment on existing owner must survive in-place append: {result}"
+        );
+        let v = parse_hujson(&result);
+        let owners = v["tagOwners"]["tag:headmaster"].as_array().unwrap();
+        assert_eq!(owners.len(), 2, "new owner must be appended");
+    }
+
     // ── append_grants ─────────────────────────────────────────────────────────
 
     #[test]
@@ -698,41 +751,110 @@ mod tests {
         );
     }
 
-    // ── remove_grants_referencing_group ───────────────────────────────────────
+    // ── grants / Grant ────────────────────────────────────────────────────────
 
     #[test]
-    fn remove_grants_referencing_group_removes_matched_leaves_others() {
+    fn grants_empty_when_no_grants_section() {
+        let editor = PolicyEditor::parse(r#"{"acls":[]}"#).unwrap();
+        assert!(editor.grants().is_empty());
+    }
+
+    #[test]
+    fn grants_empty_when_empty_policy() {
+        let editor = PolicyEditor::parse("").unwrap();
+        assert!(editor.grants().is_empty());
+    }
+
+    #[test]
+    fn grants_returns_one_grant_per_object_element() {
         let policy = r#"{
             "grants": [
                 {"src": ["group:eng"], "dst": ["tag:app"], "ip": ["*:*"]},
-                {"src": ["group:ops"], "dst": ["tag:db"], "ip": ["*:*"]},
-                {"src": ["group:eng", "group:ops"], "dst": ["tag:shared"], "ip": ["*:*"]}
+                {"src": ["group:ops"], "dst": ["tag:db"], "ip": ["*:*"]}
             ]
         }"#;
-        let mut editor = PolicyEditor::parse(policy).unwrap();
-        editor.remove_grants_referencing_group("group:eng");
-        let result = editor.to_string();
-        let v = parse_hujson(&result);
-        let grants = v["grants"].as_array().unwrap();
-        assert_eq!(grants.len(), 1, "only the ops-only grant should remain");
-        assert_eq!(grants[0]["dst"][0], "tag:db");
+        let editor = PolicyEditor::parse(policy).unwrap();
+        assert_eq!(editor.grants().len(), 2);
     }
 
     #[test]
-    fn remove_grants_referencing_group_noop_when_group_absent() {
+    fn grant_src_and_dst_read_values_from_cst() {
+        let policy =
+            r#"{"grants":[{"src":["group:eng","group:ops"],"dst":["tag:app"],"ip":["*:*"]}]}"#;
+        let editor = PolicyEditor::parse(policy).unwrap();
+        let grants = editor.grants();
+        assert_eq!(grants[0].src(), vec!["group:eng", "group:ops"]);
+        assert_eq!(grants[0].dst(), vec!["tag:app"]);
+    }
+
+    #[test]
+    fn grant_remove_from_src_removes_member_and_reread_reflects_change() {
+        let policy =
+            r#"{"grants":[{"src":["group:eng","group:ops"],"dst":["tag:app"],"ip":["*:*"]}]}"#;
+        let editor = PolicyEditor::parse(policy).unwrap();
+        let grants = editor.grants();
+        grants[0].remove_from_src("group:eng");
+        assert_eq!(grants[0].src(), vec!["group:ops"]);
+    }
+
+    #[test]
+    fn grant_remove_from_src_noop_when_member_absent() {
         let policy = r#"{"grants":[{"src":["group:eng"],"dst":["tag:app"],"ip":["*:*"]}]}"#;
-        let mut editor = PolicyEditor::parse(policy).unwrap();
-        editor.remove_grants_referencing_group("group:ops");
-        let v = parse_json(&editor.to_string());
-        assert_eq!(v["grants"].as_array().unwrap().len(), 1);
+        let editor = PolicyEditor::parse(policy).unwrap();
+        let grants = editor.grants();
+        grants[0].remove_from_src("group:missing");
+        assert_eq!(grants[0].src(), vec!["group:eng"]);
     }
 
     #[test]
-    fn remove_grants_referencing_group_matches_dst() {
-        let policy = r#"{"grants":[{"src":["*"],"dst":["group:eng"],"ip":["*:*"]}]}"#;
-        let mut editor = PolicyEditor::parse(policy).unwrap();
-        editor.remove_grants_referencing_group("group:eng");
-        let v = parse_json(&editor.to_string());
+    fn grant_remove_from_dst_removes_member() {
+        let policy = r#"{"grants":[{"src":["*"],"dst":["group:eng","tag:app"],"ip":["*:*"]}]}"#;
+        let editor = PolicyEditor::parse(policy).unwrap();
+        let grants = editor.grants();
+        grants[0].remove_from_dst("group:eng");
+        assert_eq!(grants[0].dst(), vec!["tag:app"]);
+    }
+
+    #[test]
+    fn grant_src_is_empty_after_removing_all_members() {
+        let policy = r#"{"grants":[{"src":["group:eng"],"dst":["tag:app"],"ip":["*:*"]}]}"#;
+        let editor = PolicyEditor::parse(policy).unwrap();
+        let grants = editor.grants();
+        grants[0].remove_from_src("group:eng");
+        assert!(grants[0].src().is_empty());
+    }
+
+    #[test]
+    fn grant_remove_disconnects_from_array() {
+        let policy = r#"{
+            "grants": [
+                {"src": ["group:eng"], "dst": ["tag:app"], "ip": ["*:*"]},
+                {"src": ["group:ops"], "dst": ["tag:db"], "ip": ["*:*"]}
+            ]
+        }"#;
+        let editor = PolicyEditor::parse(policy).unwrap();
+        let grants = editor.grants();
+        grants[0].remove();
+        let v = parse_hujson(&editor.to_string());
+        let remaining = v["grants"].as_array().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0]["dst"][0], "tag:db");
+    }
+
+    #[test]
+    fn grants_returns_materialized_vec_so_remove_mid_loop_is_safe() {
+        let policy = r#"{
+            "grants": [
+                {"src": ["group:eng"], "dst": ["tag:app"], "ip": ["*:*"]},
+                {"src": ["group:ops"], "dst": ["tag:db"], "ip": ["*:*"]}
+            ]
+        }"#;
+        let editor = PolicyEditor::parse(policy).unwrap();
+        // Removing during iteration over the snapshot must not panic or skip.
+        for grant in editor.grants() {
+            grant.remove();
+        }
+        let v = parse_hujson(&editor.to_string());
         assert!(v["grants"].as_array().unwrap().is_empty());
     }
 
