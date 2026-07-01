@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use headscale_client::policy::PolicyParseError;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
@@ -186,6 +187,12 @@ impl ScimError {
             status: StatusCode::UNAUTHORIZED,
             detail: "Invalid or missing bearer token".to_string(),
         }
+    }
+}
+
+impl From<PolicyParseError> for ScimError {
+    fn from(e: PolicyParseError) -> Self {
+        Self::internal(e.to_string())
     }
 }
 
