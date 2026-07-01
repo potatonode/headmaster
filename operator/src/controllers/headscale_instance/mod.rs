@@ -21,3 +21,5 @@ pub(crate) use policy::policy_has_groups_with_members;
 const PORT_HTTP: i32 = 8080;
 const PORT_METRICS: i32 = 9090;
 const PORT_GRPC: i32 = 50443;
+
+pub(super) const PORT_SCIM: i32 = 8081;
