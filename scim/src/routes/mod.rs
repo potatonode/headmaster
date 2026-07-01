@@ -1,5 +1,6 @@
 pub mod discovery;
 pub mod groups;
+pub mod internal;
 pub mod users;
 
 use axum::http::StatusCode;

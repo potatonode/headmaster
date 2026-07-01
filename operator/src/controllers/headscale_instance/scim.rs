@@ -61,7 +61,7 @@ pub(super) async fn ensure_scim(
             SecretEnvSource::required(format!("headscale-api-key-{instance}")),
             SecretEnvSource::required(format!("headscale-scim-token-{instance}")),
         ])
-        .ports([ContainerPort::tcp(8081).name("scim")])
+        .ports([ContainerPort::tcp(super::PORT_SCIM).name("scim")])
         .volume_mounts([VolumeMount::new("/data", "data")])
         .readiness_probe(
             Probe::http_get("/readyz", "scim")
@@ -126,7 +126,9 @@ pub(super) async fn ensure_scim(
         .apply_service(
             "scim",
             Service::new(&scim_name).spec(ServiceSpec {
-                ports: Some(vec![ServicePort::tcp("scim", 8081_i32).target_port("scim")]),
+                ports: Some(vec![
+                    ServicePort::tcp("scim", super::PORT_SCIM).target_port("scim"),
+                ]),
                 ..Default::default()
             }),
         )

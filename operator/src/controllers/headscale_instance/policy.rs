@@ -7,7 +7,9 @@ use std::collections::HashSet;
 use headscale_client::headscale::v1::{GetPolicyRequest, SetPolicyRequest};
 use headscale_client::policy::{PolicyEditor, policies_are_semantically_equal};
 use jsonc_parser::cst::CstInputValue;
+use k8s_openapi::api::core::v1::Secret;
 use k8s_openapi::api::networking::v1::Ingress;
+use kube::api::Api;
 use kube::{Resource, ResourceExt};
 
 use super::Error;
@@ -108,6 +110,14 @@ pub(super) async fn sync_policy(
         name = instance,
         "HeadscaleInstance: applied policy via gRPC"
     );
+
+    // Notify SCIM to re-apply its group membership immediately so that the
+    // operator's SetPolicy and SCIM's groups section stay in sync. Best-effort:
+    // SCIM will self-heal on the next SCIM protocol operation if unreachable.
+    if scim_enabled {
+        notify_scim(ctx, namespace, instance).await;
+    }
+
     Ok(())
 }
 
@@ -236,6 +246,66 @@ fn serde_val_to_cst(v: &serde_json::Value) -> CstInputValue {
                 .collect(),
         ),
     }
+}
+
+/// Sends `POST /internal/reconcile` to the SCIM sidecar for `instance`.
+/// Best-effort: logs on failure, never propagates the error.
+async fn notify_scim(ctx: &Context, namespace: &str, instance: &str) {
+    let token = match read_scim_token(ctx, namespace, instance).await {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::warn!(
+                name = instance,
+                error = %e,
+                "HeadscaleInstance: failed to read SCIM token; SCIM will resync on next operation"
+            );
+            return;
+        }
+    };
+    let url = format!(
+        "http://headscale-scim-{instance}.{namespace}.svc:{}/internal/reconcile",
+        super::PORT_SCIM,
+    );
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
+    match client.post(&url).bearer_auth(&token).send().await {
+        Ok(r) if r.status().is_success() => {
+            tracing::debug!(
+                name = instance,
+                "HeadscaleInstance: notified SCIM to reconcile"
+            );
+        }
+        Ok(r) => tracing::warn!(
+            name = instance,
+            status = %r.status(),
+            "HeadscaleInstance: SCIM reconcile notification returned non-success"
+        ),
+        Err(e) => tracing::warn!(
+            name = instance,
+            error = %e,
+            "HeadscaleInstance: failed to reach SCIM; it will resync on next SCIM operation"
+        ),
+    }
+}
+
+async fn read_scim_token(
+    ctx: &Context,
+    namespace: &str,
+    instance: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let secret_name = format!("headscale-scim-token-{instance}");
+    let secret = Api::<Secret>::namespaced(ctx.client.clone(), namespace)
+        .get(&secret_name)
+        .await?;
+    let token = secret
+        .data
+        .as_ref()
+        .and_then(|secret_data| secret_data.get("SCIM_BEARER_TOKEN"))
+        .map(|byte_string| String::from_utf8_lossy(&byte_string.0).into_owned())
+        .ok_or("SCIM_BEARER_TOKEN key not found in secret")?;
+    Ok(token)
 }
 
 /// Returns `true` when the inline policy contains at least one `groups` entry

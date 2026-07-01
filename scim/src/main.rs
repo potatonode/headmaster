@@ -184,13 +184,24 @@ async fn main() {
         )
         .route("/Schemas", get(routes::discovery::schemas))
         .route("/ResourceTypes", get(routes::discovery::resource_types))
-        .merge(protected)
-        .with_state(state);
+        .merge(protected);
+
+    let internal = Router::new()
+        .route(
+            "/reconcile",
+            axum::routing::post(routes::internal::reconcile),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_bearer,
+        ));
 
     let app = Router::new()
         .route("/livez", get(|| async { StatusCode::OK }))
         .route("/readyz", get(|| async { StatusCode::OK }))
-        .nest("/scim/v2", scim_routes);
+        .nest("/scim/v2", scim_routes)
+        .nest("/internal", internal)
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&config.listen_addr)
         .await
