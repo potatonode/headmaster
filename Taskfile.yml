@@ -40,9 +40,9 @@ tasks:
           --set headscaleImage=ghcr.io/juanfont/headscale:v0.29.0-beta.2
       - helm dependency build examples/
       - helm lint examples/ --strict
-          --set pocketId.apiKey=lint-placeholder
-          --set headmaster.headscaleInstances.main.serverUrl=http://lint-placeholder
-          --set headmaster.headscaleInstances.main.dnsBaseDomain=lint-placeholder
+        --set pocketId.apiKey=lint-placeholder
+        --set headmaster.headscaleInstances.main.serverUrl=http://lint-placeholder
+        --set headmaster.headscaleInstances.main.dnsBaseDomain=lint-placeholder
 
   test-unit:
     desc: Run unit tests (no cluster or external services needed)
@@ -237,6 +237,7 @@ tasks:
       - task: diag-pods
       - task: diag-resources
       - task: diag-events
+      - task: diag-headscale
 
   diag-logs:
     internal: true
@@ -251,7 +252,24 @@ tasks:
             done
       - |
         echo "=== operator logs ==="
-        kubectl --context {{.KUBE_CONTEXT}} logs -n {{.TEST_NS}} -l app.kubernetes.io/name=headmaster --all-containers --tail=200 2>/dev/null || true
+        kubectl --context {{.KUBE_CONTEXT}} logs -n {{.TEST_NS}} -l app.kubernetes.io/name=headmaster --all-containers --tail=500 2>/dev/null || true
+
+  diag-headscale:
+    internal: true
+    cmds:
+      - |
+        kubectl --context {{.KUBE_CONTEXT}} get headscaleinstances -A --no-headers \
+          | while read ns name rest; do
+              pod="headscale-server-${name}-0"
+              echo "=== headscale $ns/$name: policy ==="
+              kubectl --context {{.KUBE_CONTEXT}} exec -n "$ns" "$pod" -- \
+                headscale policy get 2>/dev/null || echo "<policy get failed>"
+              echo "=== headscale $ns/$name: nodes ==="
+              kubectl --context {{.KUBE_CONTEXT}} exec -n "$ns" "$pod" -- \
+                headscale nodes list 2>/dev/null || echo "<nodes list failed>"
+              echo "=== headscale $ns/$name: logs (last 200) ==="
+              kubectl --context {{.KUBE_CONTEXT}} logs -n "$ns" "$pod" --tail=200 2>/dev/null || echo "<logs unavailable>"
+            done
 
   diag-pods:
     internal: true
