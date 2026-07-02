@@ -30,14 +30,14 @@ tasks:
       - cargo build --workspace
 
   lint:
-    desc: Run all linting and static checks (formatting, clippy, CRDs, Helm)
+    desc: Run all linting and static checks (formatting, clippy, CRDs, chart README, Helm)
     cmds:
       - cargo fmt --all -- --check
       - npx prettier --check "**/*.md"
       - cargo clippy --workspace --all-targets -- -D warnings
       - cargo run --bin crdgen -p operator check chart/
+      - cargo run --bin chartdoc -p operator check chart/
       - helm lint chart/ --strict
-          --set headscaleImage=ghcr.io/juanfont/headscale:v0.29.0-beta.2
       - helm dependency build examples/
       - helm lint examples/ --strict
         --set pocketId.apiKey=lint-placeholder
@@ -54,10 +54,11 @@ tasks:
     cmds:
       - cargo test -p integration-tests --test functional
 
-  crdgen:
-    desc: Write one CRD file per kind into chart/crds/ (run and commit after any CRD schema change)
+  generate:
+    desc: Write CRDs, values schema, and chart README (run and commit after any schema change)
     cmds:
       - cargo run --bin crdgen -p operator sync chart/
+      - cargo run --bin chartdoc -p operator sync chart/
 
   build-image:
     desc: Build the operator Docker image tagged headmaster:dev

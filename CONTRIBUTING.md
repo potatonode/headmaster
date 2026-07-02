@@ -31,7 +31,7 @@ in `~/Library/Application Support/io.kubebuilder.envtest` (macOS).
 - `task test-functional` — run functional tests against an in-process API server (requires Go + libclang)
 - `task test-e2e` — run e2e tests; always recreates the k3d cluster for a clean slate (requires Docker, k3d, Helm)
 - `task fmt` — format Rust code and markdown in place
-- `task crdgen` — regenerate `chart/crds/` from the CRD type definitions; run and commit after any CRD schema change
+- `task generate` — regenerate `chart/crds/`, `chart/values.schema.json`, and `chart/README.md`; run and commit after any CRD schema change
 - `task cluster-create` / `task cluster-delete` — manually manage the headmaster-test k3d cluster
 - `task diagnose` — dump operator logs and cluster state; useful after an e2e failure
 - `task update-protos` — re-vendor headscale proto files from the upstream repo

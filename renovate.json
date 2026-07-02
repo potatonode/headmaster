@@ -32,8 +32,8 @@
       "customType": "regex",
       "fileMatch": ["^chart/values\\.yaml$"],
       "matchStrings": [
-        "headscaleImage:\\s*(?<depName>[^:\\n]+):(?<currentValue>[^\\n]+)",
-        "proxyImage:\\s*(?<depName>[^:\\n]+):(?<currentValue>[^\\n]+)"
+        "headscaleImage:\\n\\s+repository:\\s*(?<depName>[^\\n]+)\\n\\s+tag:\\s*(?<currentValue>[^\\n]+)",
+        "proxyImage:\\n\\s+repository:\\s*(?<depName>[^\\n]+)\\n\\s+tag:\\s*(?<currentValue>[^\\n]+)"
       ],
       "datasourceTemplate": "docker"
     },

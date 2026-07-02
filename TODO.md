@@ -14,3 +14,5 @@
 - HeadscaleInstance reconcile requeue interval (currently 60s): consider making this
   configurable via the CR spec or a controller flag so operators can tune the SCIM
   convergence latency vs. API-server load trade-off
+- dependentRequired schema validation (https://json-schema.org/understanding-json-schema/reference/conditionals#dependentRequired)
+- simplify watchedNamespaces - its configured at the oeprator level and at the instance level

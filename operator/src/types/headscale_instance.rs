@@ -38,11 +38,16 @@ pub struct HeadscaleInstanceSpec {
     /// Persistent storage for the headscale SQLite database.
     pub storage: StorageSpec,
     /// Headscale access-control policy applied to this instance.
+    /// When omitted, headscale allows all traffic by default.
     pub policy: Option<HeadscaleInstancePolicy>,
-    /// Extra labels applied to all child resources (ConfigMap, Service, StatefulSet).
-    /// Operator-managed labels (`app.kubernetes.io/name`, `instance`, `managed-by`) always win.
-    #[serde(default)]
-    pub labels: BTreeMap<String, String>,
+    /// SCIM 2.0 server configuration. When set, the operator deploys a SCIM sidecar
+    /// and validates that `spec.policy.inline` contains no `groups` key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scim: Option<ScimSpec>,
+    /// Namespaces from which `headmaster` Ingresses may reference this instance.
+    /// Empty list (the default) allows Ingresses from any namespace.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watched_namespaces: Vec<String>,
     /// Arbitrary extra configuration merged into the headscale config file.
     ///
     /// The admission webhook rejects entries that would collide with operator-managed keys:
@@ -59,14 +64,10 @@ pub struct HeadscaleInstanceSpec {
     /// The entire block is replaced when provided — partial overrides (e.g. only
     /// `requests` without `limits`) leave the unset half empty, not defaulted.
     pub resources: Option<ResourceRequirements>,
-    /// SCIM 2.0 server configuration. When set, the operator deploys a SCIM sidecar
-    /// and validates that `spec.policy.inline` contains no `groups` key.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scim: Option<ScimSpec>,
-    /// Namespaces from which `headmaster` Ingresses may reference this instance.
-    /// Empty list (the default) allows Ingresses from any namespace.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub watched_namespaces: Vec<String>,
+    /// Extra labels applied to all child resources (ConfigMap, Service, StatefulSet).
+    /// Operator-managed labels (`app.kubernetes.io/name`, `instance`, `managed-by`) always win.
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
 }
 
 /// SCIM 2.0 server configuration for this instance.
@@ -74,9 +75,6 @@ pub struct HeadscaleInstanceSpec {
 #[serde(rename_all = "camelCase")]
 #[x_kube(validation = Rule::new("!has(self.policyUserKey) || self.policyUserKey != 'external_id' || has(self.oidcIssuer)").message("oidcIssuer is required when policyUserKey is 'external_id'"))]
 pub struct ScimSpec {
-    /// Persistent storage for the external-ID mapping file.
-    pub storage: StorageSpec,
-
     /// Controls which identifier is written into headscale policy group entries
     /// and used to locate a user's headscale nodes for session management.
     /// Values: `"email"` (default), `"username"`, `"external_id"`.
@@ -91,6 +89,10 @@ pub struct ScimSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oidc_issuer: Option<String>,
 
+    /// Persistent storage for the external-ID mapping file.
+    #[serde(default)]
+    pub storage: StorageSpec,
+
     /// When true, expire all of a user's headscale nodes when the identifier
     /// used by `policyUserKey` changes (e.g. email change in `email` mode,
     /// username rename in `username` mode). Forces immediate OIDC re-authentication.
@@ -101,10 +103,11 @@ pub struct ScimSpec {
 }
 
 /// Persistent-volume claim template for the headscale SQLite database.
-#[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageSpec {
     /// PVC storage request (e.g. `1Gi`).
+    #[serde(default = "default_storage_size")]
     #[schemars(length(min = 1))]
     pub size: String,
     /// StorageClass to use. Omit to use the cluster default.
@@ -123,6 +126,7 @@ pub enum HeadscaleInstancePolicy {
     /// A raw HuJSON/JSON policy string applied directly to headscale.
     Inline {
         /// The policy document as a HuJSON or JSON string.
+        /// Omit the entire `policy` field to use headscale's default allow-all mode.
         inline: String,
     },
 }
@@ -150,6 +154,19 @@ impl ResourceStatus for HeadscaleInstanceStatus {
 
     fn set_observed_generation(&mut self, generation: i64) {
         self.observed_generation = generation;
+    }
+}
+
+fn default_storage_size() -> String {
+    "1Gi".to_string()
+}
+
+impl Default for StorageSpec {
+    fn default() -> Self {
+        Self {
+            size: default_storage_size(),
+            storage_class: None,
+        }
     }
 }
 

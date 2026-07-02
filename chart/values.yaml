@@ -1,24 +1,18 @@
+# Map of HeadscaleInstance resources to create. Keys are resource names.
+headscaleInstances: {}
+
+headscaleImage:
+  repository: ghcr.io/juanfont/headscale
+  tag: v0.29.0-beta.2
+
+proxyImage:
+  repository: tailscale/tailscale
+  tag: v1.98.4
+
 image:
   repository: ghcr.io/potatonode/headmaster
   tag: ""  # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
-
-headscaleImage: ghcr.io/juanfont/headscale:v0.29.0-beta.2
-proxyImage: tailscale/tailscale:v1.98.4
-
-rustLog: info
-
-resources:
-  requests:
-    cpu: 10m
-    memory: 64Mi
-  limits:
-    memory: 128Mi
-
-nodeSelector: {}
-tolerations: []
-affinity: {}
-podAnnotations: {}
 
 # Ingress controller configuration.
 ingress:
@@ -33,5 +27,16 @@ ingress:
 webhook:
   enabled: false
 
-# Map of HeadscaleInstance resources to create. Keys are resource names.
-headscaleInstances: {}
+rustLog: info
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
