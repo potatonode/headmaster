@@ -2,22 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
-    "affinity": {
-      "type": "object"
-    },
-    "global": {
-      "type": "object"
-    },
-    "headscaleImage": {
-      "description": "Container image for the headscale server deployed by this operator.",
-      "minLength": 1,
-      "type": "string"
-    },
-    "proxyImage": {
-      "description": "Container image for the Tailscale proxy sidecar deployed per Ingress.",
-      "minLength": 1,
-      "type": "string"
-    },
     "headscaleInstances": {
       "additionalProperties": {
         "description": "A headscale control-plane instance managed by headmaster.\n\nCreating a `HeadscaleInstance` causes the operator to deploy a headscale StatefulSet,\na Service, and a ConfigMap containing the rendered headscale configuration. Child\nresources are owned by the instance and are garbage-collected when it is deleted.",
@@ -48,11 +32,11 @@
                 ]
               }
             ],
-            "description": "Headscale access-control policy applied to this instance.",
+            "description": "Headscale access-control policy applied to this instance.\nWhen omitted, headscale allows all traffic by default.",
             "nullable": true,
             "properties": {
               "inline": {
-                "description": "The policy document as a HuJSON or JSON string.",
+                "description": "The policy document as a HuJSON or JSON string.\nOmit the entire `policy` field to use headscale's default allow-all mode.",
                 "type": "string"
               }
             },
@@ -61,46 +45,8 @@
           "resources": {
             "description": "Resource requests and limits for the headscale container.\nDefaults to `50m`/`64Mi` requests and `500m`/`512Mi` limits when omitted.\nThe entire block is replaced when provided — partial overrides (e.g. only\n`requests` without `limits`) leave the unset half empty, not defaulted.",
             "nullable": true,
-            "properties": {
-              "claims": {
-                "description": "Claims lists the names of resources, defined in spec.resourceClaims, that are used by this container.\n\nThis is an alpha field and requires enabling the DynamicResourceAllocation feature gate.\n\nThis field is immutable. It can only be set for containers.",
-                "items": {
-                  "description": "ResourceClaim references one entry in PodSpec.ResourceClaims.",
-                  "properties": {
-                    "name": {
-                      "description": "Name must match the name of one entry in pod.spec.resourceClaims of the Pod where this field is used. It makes that resource available inside a container.",
-                      "type": "string"
-                    },
-                    "request": {
-                      "description": "Request is the name chosen for a request in the referenced claim. If empty, everything from the claim is made available, otherwise only the result of this request.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "name"
-                  ],
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              "limits": {
-                "additionalProperties": {
-                  "description": "Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.\n\nThe serialization format is:\n\n``` <quantity>        ::= <signedNumber><suffix>\n\n\t(Note that <suffix> may be empty, from the \"\" case in <decimalSI>.)\n\n<digit>           ::= 0 | 1 | ... | 9 <digits>          ::= <digit> | <digit><digits> <number>          ::= <digits> | <digits>.<digits> | <digits>. | .<digits> <sign>            ::= \"+\" | \"-\" <signedNumber>    ::= <number> | <sign><number> <suffix>          ::= <binarySI> | <decimalExponent> | <decimalSI> <binarySI>        ::= Ki | Mi | Gi | Ti | Pi | Ei\n\n\t(International System of units; See: http://physics.nist.gov/cuu/Units/binary.html)\n\n<decimalSI>       ::= m | \"\" | k | M | G | T | P | E\n\n\t(Note that 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization.)\n\n<decimalExponent> ::= \"e\" <signedNumber> | \"E\" <signedNumber> ```\n\nNo matter which of the three exponent forms is used, no quantity may represent a number greater than 2^63-1 in magnitude, nor may it have more than 3 decimal places. Numbers larger or more precise will be capped or rounded up. (E.g.: 0.1m will rounded up to 1m.) This may be extended in the future if we require larger or smaller quantities.\n\nWhen a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.\n\nBefore serializing, Quantity will be put in \"canonical form\". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:\n\n- No precision is lost - No fractional digits will be emitted - The exponent (or suffix) is as large as possible.\n\nThe sign will be omitted unless the number is negative.\n\nExamples:\n\n- 1.5 will be serialized as \"1500m\" - 1.5Gi will be serialized as \"1536Mi\"\n\nNote that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.\n\nNon-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)\n\nThis format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation.",
-                  "x-kubernetes-int-or-string": true
-                },
-                "description": "Limits describes the maximum amount of compute resources allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
-                "type": "object"
-              },
-              "requests": {
-                "additionalProperties": {
-                  "description": "Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.\n\nThe serialization format is:\n\n``` <quantity>        ::= <signedNumber><suffix>\n\n\t(Note that <suffix> may be empty, from the \"\" case in <decimalSI>.)\n\n<digit>           ::= 0 | 1 | ... | 9 <digits>          ::= <digit> | <digit><digits> <number>          ::= <digits> | <digits>.<digits> | <digits>. | .<digits> <sign>            ::= \"+\" | \"-\" <signedNumber>    ::= <number> | <sign><number> <suffix>          ::= <binarySI> | <decimalExponent> | <decimalSI> <binarySI>        ::= Ki | Mi | Gi | Ti | Pi | Ei\n\n\t(International System of units; See: http://physics.nist.gov/cuu/Units/binary.html)\n\n<decimalSI>       ::= m | \"\" | k | M | G | T | P | E\n\n\t(Note that 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization.)\n\n<decimalExponent> ::= \"e\" <signedNumber> | \"E\" <signedNumber> ```\n\nNo matter which of the three exponent forms is used, no quantity may represent a number greater than 2^63-1 in magnitude, nor may it have more than 3 decimal places. Numbers larger or more precise will be capped or rounded up. (E.g.: 0.1m will rounded up to 1m.) This may be extended in the future if we require larger or smaller quantities.\n\nWhen a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.\n\nBefore serializing, Quantity will be put in \"canonical form\". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:\n\n- No precision is lost - No fractional digits will be emitted - The exponent (or suffix) is as large as possible.\n\nThe sign will be omitted unless the number is negative.\n\nExamples:\n\n- 1.5 will be serialized as \"1500m\" - 1.5Gi will be serialized as \"1536Mi\"\n\nNote that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.\n\nNon-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)\n\nThis format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation.",
-                  "x-kubernetes-int-or-string": true
-                },
-                "description": "Requests describes the minimum amount of compute resources required. If Requests is omitted for a container, it defaults to Limits if that is explicitly specified, otherwise to an implementation-defined value. Requests cannot exceed Limits. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
-                "type": "object"
-              }
-            },
-            "type": "object"
+            "type": "object",
+            "x-kubernetes-preserve-unknown-fields": true
           },
           "scim": {
             "description": "SCIM 2.0 server configuration. When set, the operator deploys a SCIM sidecar\nand validates that `spec.policy.inline` contains no `groups` key.",
@@ -127,9 +73,14 @@
                 "type": "string"
               },
               "storage": {
+                "default": {
+                  "size": "1Gi",
+                  "storageClass": null
+                },
                 "description": "Persistent storage for the external-ID mapping file.",
                 "properties": {
                   "size": {
+                    "default": "1Gi",
                     "description": "PVC storage request (e.g. `1Gi`).",
                     "minLength": 1,
                     "type": "string"
@@ -141,15 +92,9 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "size"
-                ],
                 "type": "object"
               }
             },
-            "required": [
-              "storage"
-            ],
             "type": "object",
             "x-kubernetes-validations": [
               {
@@ -167,6 +112,7 @@
             "description": "Persistent storage for the headscale SQLite database.",
             "properties": {
               "size": {
+                "default": "1Gi",
                 "description": "PVC storage request (e.g. `1Gi`).",
                 "minLength": 1,
                 "type": "string"
@@ -178,9 +124,6 @@
                 "type": "string"
               }
             },
-            "required": [
-              "size"
-            ],
             "type": "object"
           },
           "watchedNamespaces": {
@@ -200,9 +143,48 @@
       },
       "type": "object"
     },
+    "headscaleImage": {
+      "additionalProperties": false,
+      "description": "Container image for the headscale server deployed by this operator.",
+      "properties": {
+        "repository": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "tag": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "proxyImage": {
+      "additionalProperties": false,
+      "description": "Container image for the Tailscale proxy sidecar deployed per Ingress.",
+      "properties": {
+        "repository": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "tag": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "image": {
       "additionalProperties": false,
+      "description": "Container image for the headmaster operator.",
       "properties": {
+        "repository": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "tag": {
+          "description": "Defaults to the chart's appVersion when empty.",
+          "type": "string"
+        },
         "pullPolicy": {
           "enum": [
             "Always",
@@ -210,19 +192,8 @@
             "Never"
           ],
           "type": "string"
-        },
-        "repository": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "tag": {
-          "type": "string"
         }
       },
-      "required": [
-        "repository",
-        "pullPolicy"
-      ],
       "type": "object"
     },
     "ingress": {
@@ -243,75 +214,54 @@
       },
       "type": "object"
     },
+    "webhook": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Enable the admission webhook for HeadscaleInstance config validation. Requires cert-manager.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "rustLog": {
+      "description": "Log filter directive passed as `RUST_LOG` (e.g. `info`, `operator=debug,info`).",
+      "minLength": 1,
+      "type": "string"
+    },
     "nodeSelector": {
       "additionalProperties": {
         "type": "string"
       },
+      "description": "Node labels for pod scheduling. See the [Kubernetes docs](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector).",
+      "type": "object"
+    },
+    "tolerations": {
+      "description": "Pod tolerations for tainted nodes. See the [Kubernetes docs](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/).",
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "affinity": {
+      "description": "Pod affinity and anti-affinity rules. See the [Kubernetes docs](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity).",
       "type": "object"
     },
     "podAnnotations": {
       "additionalProperties": {
         "type": "string"
       },
+      "description": "Annotations added to the headmaster operator pod.",
       "type": "object"
     },
     "resources": {
-      "additionalProperties": false,
-      "properties": {
-        "limits": {
-          "additionalProperties": false,
-          "properties": {
-            "cpu": {
-              "type": "string"
-            },
-            "memory": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "requests": {
-          "additionalProperties": false,
-          "properties": {
-            "cpu": {
-              "type": "string"
-            },
-            "memory": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      },
+      "description": "Resource requests and limits for the headmaster operator container. See the [Kubernetes API reference](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#resources).",
       "type": "object"
     },
-    "rustLog": {
-      "minLength": 1,
-      "type": "string"
-    },
-    "tolerations": {
-      "items": {
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "webhook": {
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        }
-      },
+    "global": {
       "type": "object"
     }
   },
-  "required": [
-    "headscaleImage",
-    "proxyImage",
-    "image",
-    "rustLog",
-    "resources"
-  ],
   "title": "headmaster values",
   "type": "object"
 }

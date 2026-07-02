@@ -15,9 +15,9 @@ struct Cli {
 enum Cmd {
     /// Print all CRD manifests to stdout
     Dump,
-    /// Write CRDs to <chart-dir>/crds/ and update <chart-dir>/values.schema.json
+    /// Write CRD YAMLs and values schema to <chart-dir>
     Sync { chart_dir: String },
-    /// Verify <chart-dir>/crds/ and <chart-dir>/values.schema.json are up to date
+    /// Verify <chart-dir> CRD YAMLs and values schema are up to date
     Check { chart_dir: String },
 }
 
@@ -81,11 +81,11 @@ fn check_crds(crds: &[CustomResourceDefinition], dir: &Path) -> bool {
         match fs::read_to_string(&path) {
             Ok(got) if got == want => {}
             Ok(_) => {
-                eprintln!("{} is out of date — run: task crdgen", path.display());
+                eprintln!("{} is out of date — run: task generate", path.display());
                 ok = false;
             }
             Err(_) => {
-                eprintln!("{} not found — run: task crdgen", path.display());
+                eprintln!("{} not found — run: task generate", path.display());
                 ok = false;
             }
         }
@@ -98,7 +98,7 @@ fn check_crds(crds: &[CustomResourceDefinition], dir: &Path) -> bool {
         .collect();
     for entry in extra {
         eprintln!(
-            "{} is not a known CRD — run: task crdgen",
+            "{} is not a known CRD — run: task generate",
             entry.path().display()
         );
         ok = false;
@@ -121,7 +121,7 @@ fn check_values_schema(crds: &[CustomResourceDefinition], schema_path: &Path) ->
         true
     } else {
         eprintln!(
-            "{} is out of date — run: task crdgen",
+            "{} is out of date — run: task generate",
             schema_path.display()
         );
         false
@@ -143,12 +143,28 @@ fn apply_crd_schemas(crds: &[CustomResourceDefinition], content: &str) -> String
                 schema.pointer_mut(&format!("/properties/{key}/additionalProperties"))
         {
             *entry = spec_schema;
+            simplify_k8s_fields(entry);
         }
     }
 
     let mut out = serde_json::to_string_pretty(&schema).expect("serialize values schema");
     out.push('\n');
     out
+}
+
+// Strip verbose sub-properties from k8s types that users don't need to know about.
+// ResourceRequirements expands into claims/limits/requests with Quantity docs; just expose it
+// as an opaque object like the top-level resources field.
+fn simplify_k8s_fields(spec_schema: &mut serde_json::Value) {
+    if let Some(resources) = spec_schema.pointer_mut("/properties/resources")
+        && let Some(obj) = resources.as_object_mut()
+    {
+        obj.remove("properties");
+        obj.insert(
+            "x-kubernetes-preserve-unknown-fields".to_string(),
+            true.into(),
+        );
+    }
 }
 
 fn extract_spec_schema(crd: &CustomResourceDefinition) -> Option<serde_json::Value> {

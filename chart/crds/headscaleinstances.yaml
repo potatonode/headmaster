@@ -63,11 +63,15 @@ spec:
                 anyOf:
                 - required:
                   - inline
-                description: Headscale access-control policy applied to this instance.
+                description: |-
+                  Headscale access-control policy applied to this instance.
+                  When omitted, headscale allows all traffic by default.
                 nullable: true
                 properties:
                   inline:
-                    description: The policy document as a HuJSON or JSON string.
+                    description: |-
+                      The policy document as a HuJSON or JSON string.
+                      Omit the entire `policy` field to use headscale's default allow-all mode.
                     type: string
                 type: object
               resources:
@@ -146,9 +150,13 @@ spec:
                     nullable: true
                     type: string
                   storage:
+                    default:
+                      size: 1Gi
+                      storageClass: null
                     description: Persistent storage for the external-ID mapping file.
                     properties:
                       size:
+                        default: 1Gi
                         description: PVC storage request (e.g. `1Gi`).
                         minLength: 1
                         type: string
@@ -157,11 +165,7 @@ spec:
                         minLength: 1
                         nullable: true
                         type: string
-                    required:
-                    - size
                     type: object
-                required:
-                - storage
                 type: object
                 x-kubernetes-validations:
                 - message: oidcIssuer is required when policyUserKey is 'external_id'
@@ -176,6 +180,7 @@ spec:
                 description: Persistent storage for the headscale SQLite database.
                 properties:
                   size:
+                    default: 1Gi
                     description: PVC storage request (e.g. `1Gi`).
                     minLength: 1
                     type: string
@@ -184,8 +189,6 @@ spec:
                     minLength: 1
                     nullable: true
                     type: string
-                required:
-                - size
                 type: object
               watchedNamespaces:
                 description: |-

@@ -62,3 +62,7 @@ no separate group state is persisted locally.
 
 SCIM routes are served under `/scim/v2/` and require the bearer token.
 Health/readiness probes are available unauthenticated at `/livez` and `/readyz`.
+
+The `/internal/reconcile` endpoint (POST) also requires the bearer token. It is called by the
+operator after `SetPolicy` when SCIM is enabled to trigger an immediate policy re-sync without
+waiting for the next IdP push.

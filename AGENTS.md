@@ -25,6 +25,7 @@ Two binaries ship in a single Docker image:
 | `operator`          | Main binary. CRD types, controllers, webhook, health server.                                           |
 | `headscale-client`  | Typed gRPC client for the headscale API (vendored protos). Has a `fake-server` feature for unit tests. |
 | `scim`              | The `headmaster-scim` binary. Standalone HTTP server; shares `headscale-client`.                       |
+| `k8s-ext`           | Fluent builder and accessor extension traits for `k8s-openapi` resource types.                         |
 | `integration-tests` | Functional and e2e test suites. Not published (`publish = false`).                                     |
 
 ## Controllers
@@ -98,8 +99,9 @@ Apply all four rules whenever adding or changing a CRD type or field:
 4. **Round-trip tests** — when adding any `Option<T>` field, add a test that
    omits it entirely (not just sets it to `null`) to verify `#[serde(default)]`.
 
-After any CRD schema change, run `task crdgen` (syncs `chart/crds/`) and commit
-the updated files. `task verify` will fail if the committed CRDs are out of date.
+After any CRD schema change, run `task generate` (syncs `chart/crds/`,
+`chart/values.schema.json`, and `chart/README.md`) and commit the updated files.
+`task verify` will fail if any of those are out of date.
 
 ## Code ordering within files
 
@@ -129,7 +131,7 @@ Always use Taskfile targets, not the underlying tools directly:
 - `task build` not `cargo build`
 - `task verify` not `cargo clippy && cargo test && …`
 - `task fmt` not `cargo fmt && npx prettier`
-- `task crdgen` not `cargo run --bin crdgen`
+- `task generate` not `cargo run --bin crdgen`
 
 ## Markdown formatting
 

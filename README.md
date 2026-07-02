@@ -33,31 +33,66 @@ SCIM sidecar that keeps headscale users in sync with an OIDC provider.
 ```sh
 helm upgrade --install headmaster \
   oci://ghcr.io/potatonode/charts/headmaster \
-  --namespace headmaster-system --create-namespace \
-  --set headscaleImage=ghcr.io/juanfont/headscale:v0.29.0-beta.2
+  --namespace headmaster-system --create-namespace
 ```
+
+See [`chart/README.md`](chart/README.md) for all chart values.
 
 ## Usage
 
-Create a `HeadscaleInstance` in the same namespace as the operator:
+Create a `values.yaml` with the minimum required configuration:
 
 ```yaml
-apiVersion: headmaster.potatonode.github.io/v1alpha1
-kind: HeadscaleInstance
+headscaleInstances:
+  main:
+    serverUrl: https://headscale.example.com
+    dnsBaseDomain: ts.example.com
+    extraConfig:
+      prefixes:
+        v4: "100.64.0.0/10"
+        v6: "fd7a:115c:a1e0::/48"
+        allocation: sequential
+      derp:
+        urls:
+          - https://controlplane.tailscale.com/derpmap/default
+        auto_update_enabled: true
+        update_frequency: 24h
+```
+
+Then install:
+
+```sh
+helm upgrade --install headmaster \
+  oci://ghcr.io/potatonode/charts/headmaster \
+  --namespace headmaster-system --create-namespace \
+  -f values.yaml
+```
+
+The operator creates a `headscale-server-<name>` Service in the operator
+namespace. You need an Ingress to expose it at the `serverUrl` hostname:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: main
+  name: headscale
   namespace: headmaster-system
 spec:
-  serverUrl: "https://headscale.example.com"
-  dnsBaseDomain: "ts.example.com"
-  storage:
-    size: 5Gi
-  policy:
-    inline: |
-      {
-        "acls": [{ "action": "accept", "src": ["*"], "dst": ["*:*"] }]
-      }
+  rules:
+    - host: headscale.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: headscale-server-main
+                port:
+                  name: http
 ```
+
+Instances can also be managed as standalone `HeadscaleInstance` manifests
+applied directly to the cluster.
 
 See [`examples/`](examples/) for a full values file including OIDC and SCIM
 configuration.
