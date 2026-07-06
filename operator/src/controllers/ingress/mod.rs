@@ -4,7 +4,6 @@
 //!
 //! The module is split into focused files; see each submodule's docs.
 
-mod annotations;
 mod auth_key;
 mod error;
 mod names;
@@ -18,8 +17,7 @@ pub use names::{proxy_state_secret_name, proxy_sts_name};
 pub use reconcile::{ensure_ingress_class, stream};
 
 #[cfg(test)]
-pub(crate) use annotations::ANNOTATION_CONFIG;
-pub(crate) use annotations::IngressAnnotations;
+pub(crate) use crate::types::ANNOTATION_CONFIG;
 pub(crate) use error::Error;
 pub(crate) use reconcile::headscale_connect;
 

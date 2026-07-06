@@ -14,9 +14,10 @@ use kube::{Resource, ResourceExt};
 
 use super::Error;
 use crate::context::Context;
-use crate::controllers::ingress::{IngressAnnotations, headscale_connect, ingress_auto_tag};
+use crate::controllers::ingress::{headscale_connect, ingress_auto_tag};
 use crate::controllers::recorder::RecorderExt;
 use crate::types::HeadscaleInstancePolicy;
+use crate::types::IngressAnnotations;
 
 /// Applies `policy` to headscale via the gRPC `SetPolicy` call when the live
 /// policy differs. Requires `policy.mode: database` in the headscale config.
