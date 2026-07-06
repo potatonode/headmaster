@@ -127,7 +127,10 @@
             "type": "object"
           },
           "watchedNamespaces": {
-            "description": "Namespaces from which `headmaster` Ingresses may reference this instance.\nEmpty list (the default) allows Ingresses from any namespace.",
+            "default": [
+              "*"
+            ],
+            "description": "Namespaces from which `headmaster` Ingresses may reference this instance.\n`[\"*\"]` (the default) allows Ingresses from any namespace; `[]` denies all;\na specific list restricts to those namespaces only.",
             "items": {
               "type": "string"
             },
@@ -196,20 +199,20 @@
       },
       "type": "object"
     },
+    "claimDefault": {
+      "default": null,
+      "description": "Controls default-handler ownership for un-annotated Ingresses. null = take if unclaimed (graceful fallback); true = forcibly take ownership; false = do not claim.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "ingress": {
       "additionalProperties": false,
       "properties": {
         "enabled": {
           "description": "Set to false to disable the Ingress controller. Useful when headmaster is used solely to manage HeadscaleInstance lifecycles.",
           "type": "boolean"
-        },
-        "watchNamespaces": {
-          "description": "Namespaces to watch for Ingress objects. Empty list means all namespaces.",
-          "items": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "type": "array"
         }
       },
       "type": "object"

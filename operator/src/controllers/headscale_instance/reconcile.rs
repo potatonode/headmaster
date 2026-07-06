@@ -28,8 +28,8 @@ use super::{Error, PORT_GRPC, PORT_HTTP, PORT_METRICS};
 use crate::context::Context;
 use crate::controllers::applier::{Applier, ChildApplier, delete_ignoring_404};
 use crate::controllers::recorder::RecorderExt;
+use crate::labels;
 use crate::types::{HeadscaleInstance, IngressAnnotations, ResourceStatus};
-use crate::{FIELD_MANAGER, FINALIZER, labels};
 
 /// Runs the `HeadscaleInstance` controller until `shutdown` resolves.
 pub fn stream(
@@ -82,7 +82,8 @@ pub fn stream(
 async fn reconcile(obj: Arc<HeadscaleInstance>, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = obj.namespace().ok_or(Error::MissingNamespace)?;
     let api: Api<HeadscaleInstance> = Api::namespaced(ctx.client.clone(), &ns);
-    finalizer(&api, FINALIZER, obj, |event| async {
+    let our_finalizer = crate::finalizer(&ctx.operator_namespace);
+    finalizer(&api, &our_finalizer, obj, |event| async {
         match event {
             Finalizer::Apply(obj) => apply(obj, &ctx).await,
             Finalizer::Cleanup(obj) => cleanup(obj, &ctx).await,
@@ -96,7 +97,7 @@ async fn reconcile(obj: Arc<HeadscaleInstance>, ctx: Arc<Context>) -> Result<Act
         kube::runtime::finalizer::Error::RemoveFinalizer(e) => Error::Kube(e),
         kube::runtime::finalizer::Error::UnnamedObject => Error::UnnamedObject,
         kube::runtime::finalizer::Error::InvalidFinalizer => {
-            panic!("BUG: '{}' is not a valid finalizer string", FINALIZER)
+            panic!("BUG: '{}' is not a valid finalizer string", our_finalizer)
         }
     })
 }
@@ -227,10 +228,11 @@ async fn apply(obj: Arc<HeadscaleInstance>, ctx: &Context) -> Result<Action, Err
 async fn cleanup(obj: Arc<HeadscaleInstance>, ctx: &Context) -> Result<Action, Error> {
     let instance_name = obj.name_any();
 
-    let referencing = list_contributing_ingresses(&ctx.client, &instance_name, &[]).await?;
+    let allow_all = vec!["*".to_string()];
+    let referencing = list_contributing_ingresses(&ctx.client, &instance_name, &allow_all).await?;
 
     let recorder = ctx.recorder();
-    let ssa = PatchParams::apply(FIELD_MANAGER).force();
+    let ssa = PatchParams::apply(&crate::field_manager(&ctx.operator_namespace)).force();
     for ing in &referencing {
         let ing_ns = ing.namespace().unwrap_or_default();
         let ing_name = ing.name_any();
@@ -306,10 +308,22 @@ async fn list_contributing_ingresses(
         .items;
     Ok(all_ingresses
         .into_iter()
+        .filter(|ing| {
+            let class = ing
+                .spec
+                .as_ref()
+                .and_then(|s| s.ingress_class_name.as_deref())
+                .or_else(|| {
+                    ing.annotations()
+                        .get("kubernetes.io/ingress.class")
+                        .map(String::as_str)
+                });
+            class == Some(crate::controllers::ingress::INGRESS_CLASS_NAME)
+        })
         .filter(|ing| IngressAnnotations::headscale_ref(ing).as_deref() == Some(instance_name))
         .filter(|ing| {
-            watched_namespaces.is_empty()
-                || watched_namespaces.contains(&ing.namespace().unwrap_or_default())
+            let ns = ing.namespace().unwrap_or_default();
+            watched_namespaces.iter().any(|w| w == "*" || w == &ns)
         })
         .collect())
 }

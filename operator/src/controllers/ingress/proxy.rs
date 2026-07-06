@@ -343,7 +343,7 @@ pub(super) async fn patch_ingress_status(
     Api::<Ingress>::namespaced(ctx.client.clone(), &ns)
         .patch_status(
             &name,
-            &PatchParams::apply(crate::FIELD_MANAGER).force(),
+            &PatchParams::apply(&crate::field_manager(&ctx.operator_namespace)).force(),
             &Patch::Apply(serde_json::json!({
                 "apiVersion": "networking.k8s.io/v1",
                 "kind": "Ingress",

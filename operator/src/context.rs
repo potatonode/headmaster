@@ -12,8 +12,10 @@ pub struct Context {
     pub headscale_image: String,
     pub proxy_image: String,
     pub operator_image: String,
-    /// Namespaces the Ingress controller watches. Empty means all namespaces.
-    pub ingress_watch_namespaces: Vec<String>,
+    /// When true this deployment claims Ingresses that have no explicit `headscale-namespace`
+    /// annotation. Only one deployment may hold `claim_default = true` at a time;
+    /// a second one loses the IngressClass annotation SSA race and fails at startup.
+    pub claim_default: bool,
 }
 
 impl Context {

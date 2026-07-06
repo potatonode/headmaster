@@ -13,7 +13,6 @@ use kube::error::Status;
 use kube::{Api, Client, Resource, ResourceExt};
 use serde::Serialize;
 
-use crate::FIELD_MANAGER;
 use crate::context::Context;
 use crate::labels;
 use crate::types::HeadscaleInstance;
@@ -28,7 +27,7 @@ impl<'a> Applier<'a> {
     pub fn from_ctx(ctx: &'a Context) -> Self {
         Self {
             client: &ctx.client,
-            ssa: PatchParams::apply(FIELD_MANAGER).force(),
+            ssa: PatchParams::apply(&crate::field_manager(&ctx.operator_namespace)).force(),
         }
     }
 
@@ -76,7 +75,7 @@ impl<'a> ChildApplier<'a> {
     pub fn from_parent(ctx: &'a Context, parent: &HeadscaleInstance) -> Self {
         Self {
             client: &ctx.client,
-            ssa: PatchParams::apply(FIELD_MANAGER).force(),
+            ssa: PatchParams::apply(&crate::field_manager(&ctx.operator_namespace)).force(),
             namespace: parent
                 .namespace()
                 .expect("reconciled object must be namespaced"),
@@ -110,7 +109,7 @@ impl<'a> ChildApplier<'a> {
         );
         Self {
             client: &ctx.client,
-            ssa: PatchParams::apply(FIELD_MANAGER).force(),
+            ssa: PatchParams::apply(&crate::field_manager(&ctx.operator_namespace)).force(),
             namespace: namespace.to_string(),
             instance: proxy_base.to_string(),
             owner_ref: owner
@@ -213,7 +212,7 @@ impl<'a> ChildApplier<'a> {
         use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
         Self {
             client,
-            ssa: PatchParams::apply(FIELD_MANAGER).force(),
+            ssa: PatchParams::apply("headmaster-test").force(),
             namespace: namespace.to_string(),
             instance: instance.to_string(),
             owner_ref: OwnerReference {

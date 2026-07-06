@@ -191,9 +191,12 @@ spec:
                     type: string
                 type: object
               watchedNamespaces:
+                default:
+                - '*'
                 description: |-
                   Namespaces from which `headmaster` Ingresses may reference this instance.
-                  Empty list (the default) allows Ingresses from any namespace.
+                  `["*"]` (the default) allows Ingresses from any namespace; `[]` denies all;
+                  a specific list restricts to those namespaces only.
                 items:
                   type: string
                 type: array

@@ -351,27 +351,19 @@ async fn ingress_orphaned_when_namespace_excluded() {
         .await
         .expect("create Ingress");
 
-    // Wait for the ingress controller to reconcile (adds its finalizer).
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let ing = ingress_api.get("test-ingress").await.expect("get Ingress");
-        if ing
-            .metadata
+    // Give the ingress controller time to reconcile. It must NOT adopt this
+    // Ingress: the namespace is excluded from watchedNamespaces, so no finalizer
+    // should be stamped and no resources provisioned.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let ing = ingress_api.get("test-ingress").await.expect("get Ingress");
+    assert!(
+        ing.metadata
             .finalizers
             .as_ref()
-            .is_some_and(|f| !f.is_empty())
-        {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for Ingress finalizer"
-        );
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-
-    // Give the controller a moment to settle after the namespace check.
-    tokio::time::sleep(Duration::from_secs(1)).await;
+            .is_none_or(|f| f.is_empty()),
+        "operator must not stamp its finalizer on an Ingress from an excluded namespace"
+    );
 
     // No proxy StatefulSet should exist — the namespace is excluded.
     let sts_api = Api::<StatefulSet>::namespaced(kube_client.clone(), &ns);
@@ -383,24 +375,11 @@ async fn ingress_orphaned_when_namespace_excluded() {
         "proxy StatefulSet must not be created for an excluded namespace"
     );
 
-    // Ingress must still exist — it is orphaned, not deleted.
+    // Ingress must still exist — the controller must not delete it.
     ingress_api
         .get("test-ingress")
         .await
-        .expect("Ingress must still exist after namespace exclusion");
-
-    // The warning event must have been published on the Ingress.
-    let events = Api::<Event>::namespaced(kube_client.clone(), &ns)
-        .list(
-            &ListParams::default()
-                .fields("reason=NamespaceExcluded,involvedObject.name=test-ingress"),
-        )
-        .await
-        .expect("list events");
-    assert!(
-        !events.items.is_empty(),
-        "NamespaceExcluded warning event must be published on the orphaned Ingress"
-    );
+        .expect("Ingress must still exist when its namespace is excluded");
 
     hi_handle.abort();
     ingress_handle.abort();

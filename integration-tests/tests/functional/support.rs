@@ -269,7 +269,6 @@ pub fn make_ingress_with_access(
 
 /// Constructs a test [`Context`] backed by the given `connector`.
 ///
-/// `watched_namespaces` is empty (watch all), matching the production default.
 pub fn make_ctx(
     kube_client: &kube::Client,
     ns: &str,
@@ -286,6 +285,6 @@ pub fn make_ctx(
         headscale_image: "ghcr.io/juanfont/headscale:v0.29.0-beta.2".to_string(),
         proxy_image: "tailscale/tailscale:v1.98.4".to_string(),
         operator_image: "ghcr.io/potatonode/headmaster:dev".to_string(),
-        ingress_watch_namespaces: vec![],
+        claim_default: true,
     })
 }
