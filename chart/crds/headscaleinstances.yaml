@@ -27,7 +27,7 @@ spec:
           spec:
             description: |-
               A headscale control-plane instance managed by headmaster.
-
+              
               Creating a `HeadscaleInstance` causes the operator to deploy a headscale StatefulSet,
               a Service, and a ConfigMap containing the rendered headscale configuration. Child
               resources are owned by the instance and are garbage-collected when it is deleted.
@@ -35,7 +35,7 @@ spec:
               dnsBaseDomain:
                 description: |-
                   Base domain for Magic DNS node hostnames (e.g. `ts.example.com`).
-
+                  
                   Nodes will be reachable at `<hostname>.<dns_base_domain>` via the tailnet.
                 minLength: 1
                 type: string
@@ -43,7 +43,7 @@ spec:
                 default: {}
                 description: |-
                   Arbitrary extra configuration merged into the headscale config file.
-
+                  
                   The admission webhook rejects entries that would collide with operator-managed keys:
                   top-level `server_url`, `listen_addr`, `grpc_listen_addr`, `grpc_allow_insecure`,
                   `metrics_listen_addr`, `unix_socket`, `unix_socket_permission`, `noise`, `database`,
@@ -85,18 +85,23 @@ spec:
                   claims:
                     description: |-
                       Claims lists the names of resources, defined in spec.resourceClaims, that are used by this container.
-
+                      
                       This is an alpha field and requires enabling the DynamicResourceAllocation feature gate.
-
+                      
                       This field is immutable. It can only be set for containers.
                     items:
                       description: ResourceClaim references one entry in PodSpec.ResourceClaims.
                       properties:
                         name:
-                          description: Name must match the name of one entry in pod.spec.resourceClaims of the Pod where this field is used. It makes that resource available inside a container.
+                          description: >-
+                            Name must match the name of one entry in pod.spec.resourceClaims of the Pod
+                            where this field is used. It makes that resource available inside a container.
                           type: string
                         request:
-                          description: Request is the name chosen for a request in the referenced claim. If empty, everything from the claim is made available, otherwise only the result of this request.
+                          description: >-
+                            Request is the name chosen for a request in the referenced claim. If empty,
+                            everything from the claim is made available, otherwise only the result of this
+                            request.
                           type: string
                       required:
                       - name
@@ -104,15 +109,89 @@ spec:
                     type: array
                   limits:
                     additionalProperties:
-                      description: "Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.\n\nThe serialization format is:\n\n``` <quantity>        ::= <signedNumber><suffix>\n\n\t(Note that <suffix> may be empty, from the \"\" case in <decimalSI>.)\n\n<digit>           ::= 0 | 1 | ... | 9 <digits>          ::= <digit> | <digit><digits> <number>          ::= <digits> | <digits>.<digits> | <digits>. | .<digits> <sign>            ::= \"+\" | \"-\" <signedNumber>    ::= <number> | <sign><number> <suffix>          ::= <binarySI> | <decimalExponent> | <decimalSI> <binarySI>        ::= Ki | Mi | Gi | Ti | Pi | Ei\n\n\t(International System of units; See: http://physics.nist.gov/cuu/Units/binary.html)\n\n<decimalSI>       ::= m | \"\" | k | M | G | T | P | E\n\n\t(Note that 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization.)\n\n<decimalExponent> ::= \"e\" <signedNumber> | \"E\" <signedNumber> ```\n\nNo matter which of the three exponent forms is used, no quantity may represent a number greater than 2^63-1 in magnitude, nor may it have more than 3 decimal places. Numbers larger or more precise will be capped or rounded up. (E.g.: 0.1m will rounded up to 1m.) This may be extended in the future if we require larger or smaller quantities.\n\nWhen a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.\n\nBefore serializing, Quantity will be put in \"canonical form\". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:\n\n- No precision is lost - No fractional digits will be emitted - The exponent (or suffix) is as large as possible.\n\nThe sign will be omitted unless the number is negative.\n\nExamples:\n\n- 1.5 will be serialized as \"1500m\" - 1.5Gi will be serialized as \"1536Mi\"\n\nNote that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.\n\nNon-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)\n\nThis format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation."
+                      description: |-
+                        Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.
+                        
+                        The serialization format is:
+                        
+                        ``` <quantity>        ::= <signedNumber><suffix>
+                        
+                        	(Note that <suffix> may be empty, from the "" case in <decimalSI>.)
+                        
+                        <digit>           ::= 0 | 1 | ... | 9 <digits>          ::= <digit> | <digit><digits> <number>          ::= <digits> | <digits>.<digits> | <digits>. | .<digits> <sign>            ::= "+" | "-" <signedNumber>    ::= <number> | <sign><number> <suffix>          ::= <binarySI> | <decimalExponent> | <decimalSI> <binarySI>        ::= Ki | Mi | Gi | Ti | Pi | Ei
+                        
+                        	(International System of units; See: http://physics.nist.gov/cuu/Units/binary.html)
+                        
+                        <decimalSI>       ::= m | "" | k | M | G | T | P | E
+                        
+                        	(Note that 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization.)
+                        
+                        <decimalExponent> ::= "e" <signedNumber> | "E" <signedNumber> ```
+                        
+                        No matter which of the three exponent forms is used, no quantity may represent a number greater than 2^63-1 in magnitude, nor may it have more than 3 decimal places. Numbers larger or more precise will be capped or rounded up. (E.g.: 0.1m will rounded up to 1m.) This may be extended in the future if we require larger or smaller quantities.
+                        
+                        When a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.
+                        
+                        Before serializing, Quantity will be put in "canonical form". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:
+                        
+                        - No precision is lost - No fractional digits will be emitted - The exponent (or suffix) is as large as possible.
+                        
+                        The sign will be omitted unless the number is negative.
+                        
+                        Examples:
+                        
+                        - 1.5 will be serialized as "1500m" - 1.5Gi will be serialized as "1536Mi"
+                        
+                        Note that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.
+                        
+                        Non-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)
+                        
+                        This format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation.
                       x-kubernetes-int-or-string: true
-                    description: 'Limits describes the maximum amount of compute resources allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
+                    description: "Limits describes the maximum amount of compute resources allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
                     type: object
                   requests:
                     additionalProperties:
-                      description: "Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.\n\nThe serialization format is:\n\n``` <quantity>        ::= <signedNumber><suffix>\n\n\t(Note that <suffix> may be empty, from the \"\" case in <decimalSI>.)\n\n<digit>           ::= 0 | 1 | ... | 9 <digits>          ::= <digit> | <digit><digits> <number>          ::= <digits> | <digits>.<digits> | <digits>. | .<digits> <sign>            ::= \"+\" | \"-\" <signedNumber>    ::= <number> | <sign><number> <suffix>          ::= <binarySI> | <decimalExponent> | <decimalSI> <binarySI>        ::= Ki | Mi | Gi | Ti | Pi | Ei\n\n\t(International System of units; See: http://physics.nist.gov/cuu/Units/binary.html)\n\n<decimalSI>       ::= m | \"\" | k | M | G | T | P | E\n\n\t(Note that 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization.)\n\n<decimalExponent> ::= \"e\" <signedNumber> | \"E\" <signedNumber> ```\n\nNo matter which of the three exponent forms is used, no quantity may represent a number greater than 2^63-1 in magnitude, nor may it have more than 3 decimal places. Numbers larger or more precise will be capped or rounded up. (E.g.: 0.1m will rounded up to 1m.) This may be extended in the future if we require larger or smaller quantities.\n\nWhen a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.\n\nBefore serializing, Quantity will be put in \"canonical form\". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:\n\n- No precision is lost - No fractional digits will be emitted - The exponent (or suffix) is as large as possible.\n\nThe sign will be omitted unless the number is negative.\n\nExamples:\n\n- 1.5 will be serialized as \"1500m\" - 1.5Gi will be serialized as \"1536Mi\"\n\nNote that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.\n\nNon-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)\n\nThis format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation."
+                      description: |-
+                        Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.
+                        
+                        The serialization format is:
+                        
+                        ``` <quantity>        ::= <signedNumber><suffix>
+                        
+                        	(Note that <suffix> may be empty, from the "" case in <decimalSI>.)
+                        
+                        <digit>           ::= 0 | 1 | ... | 9 <digits>          ::= <digit> | <digit><digits> <number>          ::= <digits> | <digits>.<digits> | <digits>. | .<digits> <sign>            ::= "+" | "-" <signedNumber>    ::= <number> | <sign><number> <suffix>          ::= <binarySI> | <decimalExponent> | <decimalSI> <binarySI>        ::= Ki | Mi | Gi | Ti | Pi | Ei
+                        
+                        	(International System of units; See: http://physics.nist.gov/cuu/Units/binary.html)
+                        
+                        <decimalSI>       ::= m | "" | k | M | G | T | P | E
+                        
+                        	(Note that 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization.)
+                        
+                        <decimalExponent> ::= "e" <signedNumber> | "E" <signedNumber> ```
+                        
+                        No matter which of the three exponent forms is used, no quantity may represent a number greater than 2^63-1 in magnitude, nor may it have more than 3 decimal places. Numbers larger or more precise will be capped or rounded up. (E.g.: 0.1m will rounded up to 1m.) This may be extended in the future if we require larger or smaller quantities.
+                        
+                        When a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.
+                        
+                        Before serializing, Quantity will be put in "canonical form". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:
+                        
+                        - No precision is lost - No fractional digits will be emitted - The exponent (or suffix) is as large as possible.
+                        
+                        The sign will be omitted unless the number is negative.
+                        
+                        Examples:
+                        
+                        - 1.5 will be serialized as "1500m" - 1.5Gi will be serialized as "1536Mi"
+                        
+                        Note that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.
+                        
+                        Non-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)
+                        
+                        This format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation.
                       x-kubernetes-int-or-string: true
-                    description: 'Requests describes the minimum amount of compute resources required. If Requests is omitted for a container, it defaults to Limits if that is explicitly specified, otherwise to an implementation-defined value. Requests cannot exceed Limits. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
+                    description: "Requests describes the minimum amount of compute resources required. If Requests is omitted for a container, it defaults to Limits if that is explicitly specified, otherwise to an implementation-defined value. Requests cannot exceed Limits. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
                     type: object
                 type: object
               scim:
@@ -169,7 +248,7 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: oidcIssuer is required when policyUserKey is 'external_id'
-                  rule: '!has(self.policyUserKey) || self.policyUserKey != ''external_id'' || has(self.oidcIssuer)'
+                  rule: "!has(self.policyUserKey) || self.policyUserKey != 'external_id' || has(self.oidcIssuer)"
               serverUrl:
                 description: |-
                   Publicly-reachable URL of this headscale server, used for Magic DNS and DERP
@@ -192,7 +271,7 @@ spec:
                 type: object
               watchedNamespaces:
                 default:
-                - '*'
+                - "*"
                 description: |-
                   Namespaces from which `headmaster` Ingresses may reference this instance.
                   `["*"]` (the default) allows Ingresses from any namespace; `[]` denies all;
@@ -213,21 +292,36 @@ spec:
                 default: []
                 description: Current conditions for this instance.
                 items:
-                  description: Condition contains details for one aspect of the current state of this API Resource.
+                  description: >-
+                    Condition contains details for one aspect of the current state of this API
+                    Resource.
                   properties:
                     lastTransitionTime:
-                      description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      description: >-
+                        lastTransitionTime is the last time the condition transitioned from one status
+                        to another. This should be when the underlying condition changed.  If that is not
+                        known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
-                      description: message is a human readable message indicating details about the transition. This may be an empty string.
+                      description: >-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
                       type: string
                     observedGeneration:
-                      description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                      description: >-
+                        observedGeneration represents the .metadata.generation that the condition was
+                        set based upon. For instance, if .metadata.generation is currently 12, but the
+                        .status.conditions[x].observedGeneration is 9, the condition is out of date with
+                        respect to the current state of the instance.
                       format: int64
                       type: integer
                     reason:
-                      description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                      description: >-
+                        reason contains a programmatic identifier indicating the reason for the
+                        condition's last transition. Producers of specific condition types may define expected
+                        values and meanings for this field, and whether the values are considered a
+                        guaranteed API. The value should be a CamelCase string. This field may not be empty.
                       type: string
                     status:
                       description: status of the condition, one of True, False, Unknown.

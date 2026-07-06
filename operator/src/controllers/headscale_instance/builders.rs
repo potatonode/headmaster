@@ -26,7 +26,7 @@ pub(super) fn build_configmap(
     server_url: &str,
     dns_base_domain: &str,
     extra_config: &BTreeMap<String, serde_json::Value>,
-) -> Result<(ConfigMap, String), serde_yaml::Error> {
+) -> Result<(ConfigMap, String), serde_saphyr::ser::Error> {
     let config_yaml = build_config(server_url, dns_base_domain, extra_config.clone())?;
     let hash = hex::encode(Sha256::digest(config_yaml.as_bytes()));
     let cm = ConfigMap::new(name).data([("config.yaml", config_yaml)]);
@@ -107,7 +107,7 @@ pub(crate) fn build_config(
     server_url: &str,
     dns_base_domain: &str,
     extra_config: BTreeMap<String, serde_json::Value>,
-) -> Result<String, serde_yaml::Error> {
+) -> Result<String, serde_saphyr::ser::Error> {
     // DNS: defaults → user overrides → operator-pinned keys.
     let mut dns = serde_json::Map::new();
     dns.insert("override_local_dns".into(), false.into());
@@ -146,7 +146,7 @@ pub(crate) fn build_config(
     };
     config.extend(operator);
 
-    serde_yaml::to_string(&config)
+    serde_saphyr::to_string(&config)
 }
 
 pub(super) fn desired_statefulset(

@@ -66,7 +66,7 @@ fn generate_from_dir(chart_dir: &Path) -> String {
     let values_content = fs::read_to_string(&values_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", values_path.display()));
     let values: serde_json::Value =
-        serde_yaml::from_str(&values_content).expect("values.yaml is not valid YAML");
+        serde_saphyr::from_str(&values_content).expect("values.yaml is not valid YAML");
 
     generate_chart_readme(&schema, &values)
 }

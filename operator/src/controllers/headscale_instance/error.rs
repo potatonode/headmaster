@@ -6,7 +6,7 @@ pub(crate) enum Error {
     #[error("kube error: {0}")]
     Kube(#[from] kube::Error),
     #[error("config serialization failed: {0}")]
-    ConfigSerialization(#[from] serde_yaml::Error),
+    ConfigSerialization(#[from] serde_saphyr::ser::Error),
     #[error("object has no namespace")]
     MissingNamespace,
     #[error("object has no name")]

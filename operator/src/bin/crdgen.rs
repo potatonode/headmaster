@@ -33,7 +33,7 @@ fn main() {
 
 fn dump(crds: &[CustomResourceDefinition]) {
     for crd in crds {
-        print!("---\n{}", serde_yaml::to_string(crd).unwrap());
+        print!("---\n{}", serde_saphyr::to_string(crd).unwrap());
     }
 }
 
@@ -57,7 +57,7 @@ fn sync_crds(crds: &[CustomResourceDefinition], dir: &Path) {
     let expected: HashSet<String> = crds.iter().map(crd_filename).collect();
     for crd in crds {
         let path = dir.join(crd_filename(crd));
-        fs::write(&path, serde_yaml::to_string(crd).unwrap())
+        fs::write(&path, serde_saphyr::to_string(crd).unwrap())
             .unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
     }
     let stale: Vec<_> = fs::read_dir(dir)
@@ -77,7 +77,7 @@ fn check_crds(crds: &[CustomResourceDefinition], dir: &Path) -> bool {
     let mut ok = true;
     for crd in crds {
         let path = dir.join(crd_filename(crd));
-        let want = serde_yaml::to_string(crd).unwrap();
+        let want = serde_saphyr::to_string(crd).unwrap();
         match fs::read_to_string(&path) {
             Ok(got) if got == want => {}
             Ok(_) => {
