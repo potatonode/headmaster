@@ -383,6 +383,50 @@ async fn apply(ingress: Arc<Ingress>, ctx: &Context) -> Result<Action, Error> {
 
     let wg_node_port = apply_wireguard_service(&child, &names).await?;
 
+    let retarget = match Api::<Secret>::namespaced(ctx.client.clone(), op_ns)
+        .get(&names.state_secret_name)
+        .await
+    {
+        Ok(secret) => {
+            let old_ref = read_secret_string(&secret, "headscale_ref");
+            let old_node_id =
+                read_secret_string(&secret, "device_id").and_then(|s| s.parse::<u64>().ok());
+            old_ref
+                .filter(|r| r != &annotations.headscale_ref)
+                .map(|r| (r, old_node_id))
+        }
+        Err(kube::Error::Api(ref e)) if e.code == 404 => None,
+        Err(e) => return Err(Error::Kube(e)),
+    };
+    if let Some((old_headscale_ref, old_node_id)) = retarget {
+        if let Some(node_id) = old_node_id {
+            match headscale_connect(ctx, op_ns, &old_headscale_ref).await {
+                Ok(mut old_headscale) => {
+                    match old_headscale
+                        .delete_node(DeleteNodeRequest { node_id })
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(e) if e.code() == Code::NotFound => {}
+                        Err(e) => return Err(Error::HeadscaleApi(e)),
+                    }
+                }
+                Err(kube::Error::Api(ref ae)) if ae.code == 404 => {}
+                Err(e) => return Err(Error::Kube(e)),
+            }
+        }
+        delete_ignoring_404(
+            Api::<Secret>::namespaced(ctx.client.clone(), op_ns),
+            &names.config_secret_name,
+        )
+        .await?;
+        delete_ignoring_404(
+            Api::<Secret>::namespaced(ctx.client.clone(), op_ns),
+            &names.state_secret_name,
+        )
+        .await?;
+    }
+
     if let AuthKeyStatus::WaitingForUser = ensure_auth_key(
         ctx,
         op_ns,
