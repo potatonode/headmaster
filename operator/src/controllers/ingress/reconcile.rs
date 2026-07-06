@@ -21,7 +21,6 @@ use kube::runtime::reflector::ObjectRef;
 use kube::runtime::watcher;
 use kube::{Client, Resource, ResourceExt};
 
-use super::annotations::IngressAnnotations;
 use super::auth_key::{AuthKeyStatus, ensure_auth_key};
 use super::error::Error;
 use super::names::{ProxyNames, ingress_auto_tag};
@@ -35,7 +34,7 @@ use crate::context::Context;
 use crate::controllers::applier::{ChildApplier, delete_ignoring_404};
 use crate::controllers::recorder::RecorderExt;
 use crate::labels;
-use crate::types::{HeadscaleInstance, ResourceStatus};
+use crate::types::{HeadscaleInstance, IngressAnnotations, ResourceStatus};
 
 // ── public entrypoints ────────────────────────────────────────────────────────
 

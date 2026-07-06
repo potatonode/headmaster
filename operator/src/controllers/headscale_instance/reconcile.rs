@@ -27,9 +27,8 @@ use super::scim::{delete_scim_if_exists, ensure_scim};
 use super::{Error, PORT_GRPC, PORT_HTTP, PORT_METRICS};
 use crate::context::Context;
 use crate::controllers::applier::{Applier, ChildApplier, delete_ignoring_404};
-use crate::controllers::ingress::IngressAnnotations;
 use crate::controllers::recorder::RecorderExt;
-use crate::types::{HeadscaleInstance, ResourceStatus};
+use crate::types::{HeadscaleInstance, IngressAnnotations, ResourceStatus};
 use crate::{FIELD_MANAGER, FINALIZER, labels};
 
 /// Runs the `HeadscaleInstance` controller until `shutdown` resolves.

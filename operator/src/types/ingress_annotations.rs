@@ -1,5 +1,5 @@
-//! Parses headmaster-specific annotations from `Ingress` objects into typed
-//! structs (`IngressAnnotations`, `IngressAccessGrant`) for use by the reconciler.
+//! Parsed representation of the `headmaster.potatonode.github.io/config` annotation
+//! on `Ingress` objects.
 
 use std::collections::BTreeMap;
 
@@ -7,14 +7,22 @@ use k8s_openapi::api::networking::v1::Ingress;
 use kube::ResourceExt;
 use serde::Deserialize;
 
-use super::Error;
+pub const ANNOTATION_CONFIG: &str = "headmaster.potatonode.github.io/config";
 
-pub(crate) const ANNOTATION_CONFIG: &str = "headmaster.potatonode.github.io/config";
-
-const DEFAULT_AUTH_KEY_EXPIRY_SECS: u64 = 600; // 10 minutes
+const DEFAULT_AUTH_KEY_EXPIRY_SECS: u64 = 600;
 
 fn default_auth_key_expiry_secs() -> u64 {
     DEFAULT_AUTH_KEY_EXPIRY_SECS
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AnnotationError {
+    #[error("required annotation '{0}' is missing")]
+    Missing(&'static str),
+    #[error("invalid annotation '{0}': {1}")]
+    Invalid(&'static str, String),
+    #[error("invalid annotations: {0}")]
+    InvalidAnnotations(&'static str),
 }
 
 /// One entry in the `access` list of the headmaster ingress annotation.
@@ -26,74 +34,57 @@ fn default_auth_key_expiry_secs() -> u64 {
 /// HTTP header.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
-pub(crate) struct IngressAccessGrant {
+pub struct IngressAccessGrant {
     /// Source principals: `group:*`, `tag:*`, `autogroup:*`, `*`, or a user email.
-    pub(crate) from: Vec<String>,
+    pub from: Vec<String>,
     /// Capability name → JSON argument list. If `None`, emits `ip: ["*:*"]`.
     #[serde(default)]
-    pub(crate) capabilities: Option<BTreeMap<String, Vec<serde_json::Value>>>,
+    pub capabilities: Option<BTreeMap<String, Vec<serde_json::Value>>>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct IngressConfig {
-    headscale_ref: String,
-    user: Option<String>,
+pub struct IngressAnnotations {
+    pub headscale_ref: String,
+    pub user: Option<String>,
     #[serde(default)]
-    managed_key_tags: Vec<String>,
-    hostname: Option<String>,
+    pub managed_key_tags: Vec<String>,
+    #[serde(default)]
+    pub hostname: String,
     #[serde(default = "default_auth_key_expiry_secs")]
-    auth_key_expiry_secs: u64,
+    pub auth_key_expiry_secs: u64,
     #[serde(default)]
-    auth_key_reusable: bool,
+    pub auth_key_reusable: bool,
     #[serde(default)]
-    access: Vec<IngressAccessGrant>,
-}
-
-pub(crate) struct IngressAnnotations {
-    pub(crate) headscale_ref: String,
-    pub(crate) user: Option<String>,
-    pub(super) managed_key_tags: Vec<String>,
-    pub(super) hostname: String,
-    pub(super) auth_key_expiry_secs: u64,
-    pub(super) auth_key_reusable: bool,
-    pub(crate) access: Vec<IngressAccessGrant>,
+    pub access: Vec<IngressAccessGrant>,
 }
 
 impl IngressAnnotations {
-    pub(crate) fn parse(ingress: &Ingress) -> Result<Self, Error> {
+    pub fn parse(ingress: &Ingress) -> Result<Self, AnnotationError> {
         let json = ingress
             .annotations()
             .get(ANNOTATION_CONFIG)
-            .ok_or(Error::MissingAnnotation(ANNOTATION_CONFIG))?;
-        let cfg: IngressConfig = serde_json::from_str(json)
-            .map_err(|e| Error::InvalidAnnotation(ANNOTATION_CONFIG, e.to_string()))?;
-        if cfg.user.is_none() && cfg.managed_key_tags.is_empty() {
-            return Err(Error::InvalidAnnotations(
+            .ok_or(AnnotationError::Missing(ANNOTATION_CONFIG))?;
+        let mut parsed: Self = serde_json::from_str(json)
+            .map_err(|e| AnnotationError::Invalid(ANNOTATION_CONFIG, e.to_string()))?;
+        if parsed.user.is_none() && parsed.managed_key_tags.is_empty() {
+            return Err(AnnotationError::InvalidAnnotations(
                 "at least one of 'user' or 'managed-key-tags' must be set",
             ));
         }
-        let hostname = cfg.hostname.unwrap_or_else(|| ingress.name_any());
-        Ok(Self {
-            headscale_ref: cfg.headscale_ref,
-            user: cfg.user,
-            managed_key_tags: cfg.managed_key_tags,
-            hostname,
-            auth_key_expiry_secs: cfg.auth_key_expiry_secs,
-            auth_key_reusable: cfg.auth_key_reusable,
-            access: cfg.access,
-        })
+        if parsed.hostname.is_empty() {
+            parsed.hostname = ingress.name_any();
+        }
+        Ok(parsed)
     }
 
-    pub(crate) fn headscale_ref(ingress: &Ingress) -> Option<String> {
+    /// Cheaply extracts `headscale-ref` without full validation. Used in
+    /// contexts where `parse()` hasn't run (watch triggers, pre-finalizer gate).
+    pub fn headscale_ref(ingress: &Ingress) -> Option<String> {
         let json = ingress.annotations().get(ANNOTATION_CONFIG)?;
         serde_json::from_str::<serde_json::Value>(json)
             .ok()
-            .and_then(|v| {
-                v.get("headscale-ref")
-                    .and_then(|r| r.as_str())
-                    .map(String::from)
-            })
+            .and_then(|v| v.get("headscale-ref")?.as_str().map(String::from))
     }
 }
 
@@ -103,10 +94,7 @@ mod tests {
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
     fn make_test_ingress(user: Option<&str>, tags: Option<&[&str]>) -> Ingress {
-        use std::collections::BTreeMap;
-        let mut config = serde_json::json!({
-            "headscale-ref": "headscale"
-        });
+        let mut config = serde_json::json!({ "headscale-ref": "headscale" });
         if let Some(u) = user {
             config["user"] = serde_json::Value::String(u.to_string());
         }
@@ -128,11 +116,7 @@ mod tests {
     }
 
     fn ingress_with_config(extra: serde_json::Value) -> Ingress {
-        use std::collections::BTreeMap;
-        let mut config = serde_json::json!({
-            "headscale-ref": "main",
-            "user": "alice"
-        });
+        let mut config = serde_json::json!({ "headscale-ref": "main", "user": "alice" });
         if let serde_json::Value::Object(map) = extra {
             for (k, v) in map {
                 config[k] = v;
@@ -158,7 +142,7 @@ mod tests {
         assert!(
             matches!(
                 IngressAnnotations::parse(&ing),
-                Err(Error::InvalidAnnotations(_))
+                Err(AnnotationError::InvalidAnnotations(_))
             ),
             "parse must fail when neither user nor managed-key-tags is set"
         );
@@ -195,7 +179,7 @@ mod tests {
         assert!(
             matches!(
                 IngressAnnotations::parse(&ingress),
-                Err(Error::InvalidAnnotation(_, _))
+                Err(AnnotationError::Invalid(_, _))
             ),
             "non-numeric auth-key-expiry-secs must be rejected"
         );
@@ -250,9 +234,7 @@ mod tests {
         let ingress = ingress_with_config(serde_json::json!({
             "access": [{
                 "from": ["group:eng", "alice@example.com"],
-                "capabilities": {
-                    "myapp/cap/admin": [{"role": "admin"}]
-                }
+                "capabilities": { "myapp/cap/admin": [{"role": "admin"}] }
             }]
         }));
         let parsed = IngressAnnotations::parse(&ingress).expect("must parse");
@@ -273,7 +255,7 @@ mod tests {
         assert!(
             matches!(
                 IngressAnnotations::parse(&ingress),
-                Err(Error::InvalidAnnotation(_, _))
+                Err(AnnotationError::Invalid(_, _))
             ),
             "unknown field in access grant must be rejected"
         );
