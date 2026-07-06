@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn spec_round_trips() {
-        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {r#"
+        let spec: HeadscaleInstanceSpec = serde_saphyr::from_str(indoc! {r#"
             serverUrl: https://headscale.example.com
             dnsBaseDomain: ts.example.com
             storage:
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn extra_config_omitted_is_empty() {
-        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {"
+        let spec: HeadscaleInstanceSpec = serde_saphyr::from_str(indoc! {"
             serverUrl: https://headscale.example.com
             dnsBaseDomain: ts.example.com
             storage:
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn policy_omitted_is_none() {
-        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {"
+        let spec: HeadscaleInstanceSpec = serde_saphyr::from_str(indoc! {"
             serverUrl: https://headscale.example.com
             dnsBaseDomain: ts.example.com
             storage:
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn watched_namespaces_defaults_to_star() {
-        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {"
+        let spec: HeadscaleInstanceSpec = serde_saphyr::from_str(indoc! {"
             serverUrl: https://headscale.example.com
             dnsBaseDomain: ts.example.com
             storage:
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn watched_namespaces_empty_denies_all() {
-        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {"
+        let spec: HeadscaleInstanceSpec = serde_saphyr::from_str(indoc! {"
             serverUrl: https://headscale.example.com
             dnsBaseDomain: ts.example.com
             storage:
@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn watched_namespaces_specific_list_filters() {
-        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {"
+        let spec: HeadscaleInstanceSpec = serde_saphyr::from_str(indoc! {"
             serverUrl: https://headscale.example.com
             dnsBaseDomain: ts.example.com
             storage:
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn resources_round_trips() {
-        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {r#"
+        let spec: HeadscaleInstanceSpec = serde_saphyr::from_str(indoc! {r#"
             serverUrl: https://headscale.example.com
             dnsBaseDomain: ts.example.com
             storage:
