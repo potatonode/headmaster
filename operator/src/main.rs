@@ -49,18 +49,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let operator_image =
         std::env::var("OPERATOR_IMAGE").expect("OPERATOR_IMAGE env var must be set");
 
-    let ingress_enabled = std::env::var("INGRESS_ENABLED")
-        .map(|v| v != "false" && v != "0")
-        .unwrap_or(true);
-    let ingress_watch_namespaces: Vec<String> = std::env::var("INGRESS_WATCH_NAMESPACES")
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect();
+    let ingress_enabled = match std::env::var("INGRESS_ENABLED") {
+        Ok(v) => v
+            .parse::<bool>()
+            .map_err(|e| format!("INGRESS_ENABLED={v:?}: {e}"))?,
+        Err(_) => true,
+    };
+    // None        = take default if unclaimed, gracefully back off if contested
+    // Some(true)  = "force": forcibly take default (use when migrating)
+    // Some(false) = "false": do not claim default at all
+    let claim_default_config: Option<bool> = match std::env::var("CLAIM_DEFAULT") {
+        Ok(v) => Some(match v.as_str() {
+            "force" => true,
+            "false" => false,
+            other => {
+                return Err(
+                    format!("CLAIM_DEFAULT={other:?}: expected \"force\" or \"false\"").into(),
+                );
+            }
+        }),
+        Err(_) => None,
+    };
 
     let client = Client::try_default().await?;
+
+    let claim_default = if ingress_enabled {
+        let is_default =
+            ingress::ensure_ingress_class(&client, &operator_namespace, claim_default_config)
+                .await?;
+        info!(
+            is_default_handler = is_default,
+            "IngressClass 'headmaster' applied"
+        );
+        is_default
+    } else {
+        false
+    };
+
     let ctx = Arc::new(Context {
         client: client.clone(),
         operator_namespace: operator_namespace.clone(),
@@ -72,13 +97,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         headscale_image,
         proxy_image,
         operator_image,
-        ingress_watch_namespaces,
+        claim_default,
     });
-
-    if ingress_enabled {
-        ingress::ensure_ingress_class(&client).await?;
-        info!("IngressClass 'headmaster' applied");
-    }
 
     // Bind before spawning so a port conflict fails main() immediately.
     let health_listener = TcpListener::bind(("0.0.0.0", HEALTH_PORT)).await?;

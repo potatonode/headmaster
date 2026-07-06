@@ -22,7 +22,7 @@ pub(super) fn test_ctx(client: kube::Client) -> Context {
         headscale_image: "test".to_string(),
         proxy_image: "test".to_string(),
         operator_image: "test".to_string(),
-        ingress_watch_namespaces: vec![],
+        claim_default: true,
     }
 }
 

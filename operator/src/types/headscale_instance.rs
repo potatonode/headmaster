@@ -14,7 +14,7 @@ use super::condition::ResourceStatus;
 /// Creating a `HeadscaleInstance` causes the operator to deploy a headscale StatefulSet,
 /// a Service, and a ConfigMap containing the rendered headscale configuration. Child
 /// resources are owned by the instance and are garbage-collected when it is deleted.
-#[derive(CustomResource, Serialize, Deserialize, Clone, Debug, Default, JsonSchema)]
+#[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[kube(
     group = "headmaster.potatonode.github.io",
     version = "v1alpha1",
@@ -45,8 +45,9 @@ pub struct HeadscaleInstanceSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scim: Option<ScimSpec>,
     /// Namespaces from which `headmaster` Ingresses may reference this instance.
-    /// Empty list (the default) allows Ingresses from any namespace.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// `["*"]` (the default) allows Ingresses from any namespace; `[]` denies all;
+    /// a specific list restricts to those namespaces only.
+    #[serde(default = "default_watched_namespaces")]
     pub watched_namespaces: Vec<String>,
     /// Arbitrary extra configuration merged into the headscale config file.
     ///
@@ -68,6 +69,22 @@ pub struct HeadscaleInstanceSpec {
     /// Operator-managed labels (`app.kubernetes.io/name`, `instance`, `managed-by`) always win.
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
+}
+
+impl Default for HeadscaleInstanceSpec {
+    fn default() -> Self {
+        Self {
+            server_url: String::new(),
+            dns_base_domain: String::new(),
+            storage: StorageSpec::default(),
+            policy: None,
+            scim: None,
+            watched_namespaces: default_watched_namespaces(),
+            extra_config: BTreeMap::new(),
+            resources: None,
+            labels: BTreeMap::new(),
+        }
+    }
 }
 
 /// SCIM 2.0 server configuration for this instance.
@@ -161,6 +178,16 @@ fn default_storage_size() -> String {
     "1Gi".to_string()
 }
 
+fn default_watched_namespaces() -> Vec<String> {
+    vec!["*".to_string()]
+}
+
+impl HeadscaleInstanceSpec {
+    pub fn namespace_allowed(&self, ns: &str) -> bool {
+        self.watched_namespaces.iter().any(|w| w == "*" || w == ns)
+    }
+}
+
 impl Default for StorageSpec {
     fn default() -> Self {
         Self {
@@ -229,7 +256,8 @@ mod tests {
                 "policy": { "inline": r#"{"acls":[]}"# },
                 "labels": { "env": "prod" },
                 "extraConfig": { "log": { "level": "debug" } },
-                "resources": { "requests": { "cpu": "100m", "memory": "128Mi" } }
+                "resources": { "requests": { "cpu": "100m", "memory": "128Mi" } },
+                "watchedNamespaces": ["*"]
             })
         );
     }
@@ -256,6 +284,56 @@ mod tests {
         "})
         .unwrap();
         assert!(spec.policy.is_none());
+    }
+
+    #[test]
+    fn watched_namespaces_defaults_to_star() {
+        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {"
+            serverUrl: https://headscale.example.com
+            dnsBaseDomain: ts.example.com
+            storage:
+              size: 1Gi
+        "})
+        .unwrap();
+        assert_eq!(spec.watched_namespaces, vec!["*"]);
+        assert!(
+            spec.namespace_allowed("any-namespace"),
+            "default must allow all namespaces"
+        );
+    }
+
+    #[test]
+    fn watched_namespaces_empty_denies_all() {
+        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {"
+            serverUrl: https://headscale.example.com
+            dnsBaseDomain: ts.example.com
+            storage:
+              size: 1Gi
+            watchedNamespaces: []
+        "})
+        .unwrap();
+        assert!(
+            !spec.namespace_allowed("any-namespace"),
+            "empty list must deny all namespaces"
+        );
+    }
+
+    #[test]
+    fn watched_namespaces_specific_list_filters() {
+        let spec: HeadscaleInstanceSpec = serde_yaml::from_str(indoc! {"
+            serverUrl: https://headscale.example.com
+            dnsBaseDomain: ts.example.com
+            storage:
+              size: 1Gi
+            watchedNamespaces: [prod, staging]
+        "})
+        .unwrap();
+        assert!(spec.namespace_allowed("prod"), "prod must be allowed");
+        assert!(spec.namespace_allowed("staging"), "staging must be allowed");
+        assert!(
+            !spec.namespace_allowed("dev"),
+            "dev must be denied when not in list"
+        );
     }
 
     #[test]

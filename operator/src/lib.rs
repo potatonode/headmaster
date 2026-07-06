@@ -1,8 +1,16 @@
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 
 pub const GROUP: &str = "headmaster.potatonode.github.io";
-pub const FIELD_MANAGER: &str = "headmaster";
-pub const FINALIZER: &str = "headmaster.potatonode.github.io/cleanup";
+pub const ANNOTATION_CLAIMED_BY: &str = "headmaster.potatonode.github.io/claimed-by";
+pub const ANNOTATION_DEFAULT_NAMESPACE: &str = "headmaster.potatonode.github.io/default-namespace";
+
+pub fn finalizer(operator_ns: &str) -> String {
+    format!("headmaster.potatonode.github.io/cleanup-{operator_ns}")
+}
+
+pub fn field_manager(operator_ns: &str) -> String {
+    format!("headmaster-{operator_ns}")
+}
 
 pub mod labels {
     pub use k8s_ext::label::{APP_INSTANCE, APP_MANAGED_BY, APP_NAME};

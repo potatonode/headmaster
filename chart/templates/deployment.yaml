@@ -67,9 +67,9 @@ spec:
               value: {{ .Values.rustLog }}
             - name: INGRESS_ENABLED
               value: "{{ if .Values.ingress.enabled }}true{{ else }}false{{ end }}"
-            {{- if .Values.ingress.watchNamespaces }}
-            - name: INGRESS_WATCH_NAMESPACES
-              value: {{ .Values.ingress.watchNamespaces | join "," | quote }}
+            {{- if kindIs "bool" .Values.claimDefault }}
+            - name: CLAIM_DEFAULT
+              value: {{ if .Values.claimDefault }}"force"{{ else }}"false"{{ end }}
             {{- end }}
             {{- if .Values.webhook.enabled }}
             - name: WEBHOOK_TLS_DIR

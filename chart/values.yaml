@@ -19,8 +19,16 @@ ingress:
   # Set to false to disable the Ingress controller entirely (e.g. when using
   # headmaster only to manage HeadscaleInstance lifecycles).
   enabled: true
-  # Namespaces to watch for Ingress objects. Empty list means all namespaces.
-  watchNamespaces: []
+
+# Controls default-handler ownership for Ingresses with no explicit
+# headscale-namespace annotation.
+#   null (default) — take ownership if unclaimed; gracefully back off if
+#                    another deployment already holds it.
+#   true           — forcibly take ownership, overwriting any stale claim.
+#                    Use when intentionally migrating the default handler.
+#   false          — do not claim default ownership; only process Ingresses
+#                    that explicitly target this deployment.
+claimDefault: ~
 
 # Admission webhook for HeadscaleInstance config validation.
 # Requires cert-manager to be installed in the cluster.

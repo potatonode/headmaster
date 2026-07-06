@@ -29,7 +29,6 @@ use super::proxy::{
     collect_ingress_routes, ensure_state_secret, patch_ingress_status,
 };
 use super::{CONTROLLER_NAME, INGRESS_CLASS_NAME};
-use crate::FINALIZER;
 use crate::context::Context;
 use crate::controllers::applier::{ChildApplier, delete_ignoring_404};
 use crate::controllers::recorder::RecorderExt;
@@ -38,9 +37,24 @@ use crate::types::{HeadscaleInstance, IngressAnnotations, ResourceStatus};
 
 // ── public entrypoints ────────────────────────────────────────────────────────
 
-/// Ensures the `headmaster` IngressClass exists. Called once on startup.
-pub async fn ensure_ingress_class(client: &Client) -> Result<(), kube::Error> {
-    let ssa = PatchParams::apply(crate::FIELD_MANAGER).force();
+/// Ensures the `headmaster` IngressClass exists and optionally claims it as the
+/// default handler for un-annotated Ingresses. Called once on startup.
+///
+/// `claim` controls ownership of the `default-namespace` annotation:
+/// - `None` — try to claim without force; a 409 (someone else already holds it)
+///   is treated as graceful fallback: we do not adopt un-annotated Ingresses.
+/// - `Some(true)` — claim with `.force()`, overwriting any stale owner. Use
+///   when intentionally migrating the default handler.
+/// - `Some(false)` — do not touch the annotation; never adopt un-annotated
+///   Ingresses.
+///
+/// Returns `true` if we actively hold the default-handler claim after the call.
+pub async fn ensure_ingress_class(
+    client: &Client,
+    operator_namespace: &str,
+    claim: Option<bool>,
+) -> Result<bool, kube::Error> {
+    let ssa = PatchParams::apply(&crate::field_manager(operator_namespace)).force();
     let desired = IngressClass {
         metadata: ObjectMeta {
             name: Some(INGRESS_CLASS_NAME.to_string()),
@@ -54,7 +68,51 @@ pub async fn ensure_ingress_class(client: &Client) -> Result<(), kube::Error> {
     Api::<IngressClass>::all(client.clone())
         .patch(INGRESS_CLASS_NAME, &ssa, &Patch::Apply(&desired))
         .await?;
-    Ok(())
+
+    let Some(force) = claim else {
+        // None: try to claim; accept 409 as "someone else holds it" rather than failing.
+        let claim_manager = format!("{}-claim-default", crate::field_manager(operator_namespace));
+        return match Api::<IngressClass>::all(client.clone())
+            .patch(
+                INGRESS_CLASS_NAME,
+                &PatchParams::apply(&claim_manager),
+                &Patch::Apply(claim_annotation_manifest(operator_namespace)),
+            )
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(kube::Error::Api(ref status)) if status.code == 409 => Ok(false),
+            Err(e) => Err(e),
+        };
+    };
+
+    if !force {
+        return Ok(false);
+    }
+
+    // Some(true): forcibly take ownership, overwriting any stale claim.
+    let claim_manager = format!("{}-claim-default", crate::field_manager(operator_namespace));
+    Api::<IngressClass>::all(client.clone())
+        .patch(
+            INGRESS_CLASS_NAME,
+            &PatchParams::apply(&claim_manager).force(),
+            &Patch::Apply(claim_annotation_manifest(operator_namespace)),
+        )
+        .await?;
+    Ok(true)
+}
+
+fn claim_annotation_manifest(operator_namespace: &str) -> serde_json::Value {
+    serde_json::json!({
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "IngressClass",
+        "metadata": {
+            "name": INGRESS_CLASS_NAME,
+            "annotations": {
+                crate::ANNOTATION_DEFAULT_NAMESPACE: operator_namespace,
+            }
+        }
+    })
 }
 
 pub fn stream(
@@ -124,29 +182,53 @@ async fn reconcile(ingress: Arc<Ingress>, ctx: Arc<Context>) -> Result<Action, E
                 .get("kubernetes.io/ingress.class")
                 .map(String::as_str)
         });
-    if class != Some(INGRESS_CLASS_NAME) {
+    let our_finalizer = crate::finalizer(&ctx.operator_namespace);
+    let has_our_finalizer = ingress.finalizers().iter().any(|f| f == &our_finalizer);
+
+    if class != Some(INGRESS_CLASS_NAME) && !has_our_finalizer {
         return Ok(Action::await_change());
     }
 
     let ns = ingress.namespace().ok_or(Error::MissingNamespace)?;
 
-    // Namespace filter: skip Ingresses in namespaces not on the watch list.
-    // Exception: if the Ingress already has our finalizer we previously managed
-    // it and must run apply() once to deregister its proxy and remove the
-    // finalizer — otherwise the Ingress stays stuck with leaked resources.
-    // Once the finalizer is gone the Ingress falls through to the early return
-    // on every subsequent reconcile and is never touched again.
-    let has_our_finalizer = ingress.finalizers().contains(&FINALIZER.to_string());
-    if !ctx.ingress_watch_namespaces.is_empty()
-        && !ctx.ingress_watch_namespaces.iter().any(|n| n == &ns)
-        && !has_our_finalizer
-    {
+    // Layer 1: sharding gate — only adopt Ingresses targeted at this deployment.
+    let target_namespace = IngressAnnotations::headscale_namespace(&ingress);
+    let is_ours = match &target_namespace {
+        Some(n) => n == &ctx.operator_namespace,
+        None => ctx.claim_default,
+    };
+    if !is_ours && !has_our_finalizer {
         return Ok(Action::await_change());
+    }
+
+    // Layer 2: authorization gate — only runs pre-adoption. An Ingress without a
+    // valid config annotation is not ours to manage; skip it rather than adopting
+    // it and then failing forever in apply(). An excluded namespace must never
+    // acquire our finalizer: we have nothing to clean up, and stamping a finalizer
+    // we immediately remove would block re-adoption when watchedNamespaces is later
+    // updated to include this namespace.
+    if !has_our_finalizer {
+        match IngressAnnotations::parse(&ingress) {
+            Ok(annotations) => {
+                let instance_api: Api<HeadscaleInstance> =
+                    Api::namespaced(ctx.client.clone(), &ctx.operator_namespace);
+                match instance_api.get(&annotations.headscale_ref).await {
+                    Ok(instance) => {
+                        if !instance.spec.namespace_allowed(&ns) {
+                            return Ok(Action::await_change());
+                        }
+                    }
+                    Err(kube::Error::Api(ref e)) if e.code == 404 => {}
+                    Err(e) => return Err(Error::Kube(e)),
+                }
+            }
+            Err(_) => return Ok(Action::await_change()),
+        }
     }
 
     let api: Api<Ingress> = Api::namespaced(ctx.client.clone(), &ns);
 
-    finalizer(&api, FINALIZER, ingress, |event| async {
+    finalizer(&api, &our_finalizer, ingress, |event| async {
         match event {
             Finalizer::Apply(ing) => apply(ing, &ctx).await,
             Finalizer::Cleanup(ing) => cleanup(ing, &ctx).await,
@@ -160,7 +242,7 @@ async fn reconcile(ingress: Arc<Ingress>, ctx: Arc<Context>) -> Result<Action, E
         kube::runtime::finalizer::Error::RemoveFinalizer(e) => Error::Kube(e),
         kube::runtime::finalizer::Error::UnnamedObject => Error::UnnamedObject,
         kube::runtime::finalizer::Error::InvalidFinalizer => {
-            panic!("BUG: '{}' is not a valid finalizer string", FINALIZER)
+            panic!("BUG: '{}' is not a valid finalizer string", our_finalizer)
         }
     })
 }
@@ -172,40 +254,45 @@ async fn apply(ingress: Arc<Ingress>, ctx: &Context) -> Result<Action, Error> {
     let ingress_name = ingress.name_any();
     let op_ns = &ctx.operator_namespace;
 
-    // If this namespace was removed from INGRESS_WATCH_NAMESPACES after we
-    // already provisioned this Ingress (detected by our finalizer still being
-    // present), deregister proxy resources and then remove our finalizer so
-    // the operator completely relinquishes control and never touches this
-    // Ingress again.
-    if !ctx.ingress_watch_namespaces.is_empty()
-        && !ctx
-            .ingress_watch_namespaces
-            .iter()
-            .any(|n| n == &ingress_ns)
-    {
+    // Class release: if the ingressClassName no longer points at us (e.g. the
+    // user changed it from "headmaster" to "nginx"), deregister resources and
+    // relinquish ownership so the proxy doesn't outlive its controller.
+    let class = ingress
+        .spec
+        .as_ref()
+        .and_then(|s| s.ingress_class_name.as_deref())
+        .or_else(|| {
+            ingress
+                .annotations()
+                .get("kubernetes.io/ingress.class")
+                .map(String::as_str)
+        });
+    if class != Some(INGRESS_CLASS_NAME) {
         let names = ProxyNames::new(&ingress_ns, &ingress_name);
-        if let Ok(annotations) = IngressAnnotations::parse(&ingress) {
-            deregister_and_cleanup(ctx, op_ns, &names, &ingress, &annotations.headscale_ref)
-                .await?;
+        if let Some(headscale_ref) = IngressAnnotations::headscale_ref(&ingress) {
+            deregister_and_cleanup(ctx, op_ns, &names, &ingress, &headscale_ref).await?;
         } else {
-            // No valid annotations means the Ingress was never fully provisioned;
-            // just clean up any k8s resources and fall through to finalizer removal.
             cleanup_proxy_resources(ctx, op_ns, &names).await;
         }
-        let remaining: Vec<String> = ingress
-            .finalizers()
-            .iter()
-            .filter(|f| f.as_str() != FINALIZER)
-            .cloned()
-            .collect();
-        Api::<Ingress>::namespaced(ctx.client.clone(), &ingress_ns)
-            .patch(
-                &ingress_name,
-                &PatchParams::default(),
-                &Patch::Merge(serde_json::json!({ "metadata": { "finalizers": remaining } })),
-            )
-            .await
-            .map_err(Error::Kube)?;
+        release_ingress(ctx, &ingress_ns, &ingress_name).await?;
+        return Ok(Action::await_change());
+    }
+
+    // Sharding release: if the headscale-namespace annotation now points
+    // elsewhere, deregister resources and relinquish ownership.
+    let target_namespace = IngressAnnotations::headscale_namespace(&ingress);
+    let is_ours = match &target_namespace {
+        Some(n) => n == op_ns,
+        None => ctx.claim_default,
+    };
+    if !is_ours {
+        let names = ProxyNames::new(&ingress_ns, &ingress_name);
+        if let Some(headscale_ref) = IngressAnnotations::headscale_ref(&ingress) {
+            deregister_and_cleanup(ctx, op_ns, &names, &ingress, &headscale_ref).await?;
+        } else {
+            cleanup_proxy_resources(ctx, op_ns, &names).await;
+        }
+        release_ingress(ctx, &ingress_ns, &ingress_name).await?;
         return Ok(Action::await_change());
     }
 
@@ -244,9 +331,9 @@ async fn apply(ingress: Arc<Ingress>, ctx: &Context) -> Result<Action, Error> {
     // {ingress_ns}-{ingress_name} as the base to avoid cross-namespace collisions.
     let names = ProxyNames::new(&ingress_ns, &ingress_name);
 
-    if !instance.spec.watched_namespaces.is_empty()
-        && !instance.spec.watched_namespaces.contains(&ingress_ns)
-    {
+    // Authorization release: if watchedNamespaces no longer covers this
+    // Ingress's namespace, deregister and relinquish ownership.
+    if !instance.spec.namespace_allowed(&ingress_ns) {
         let _ = ctx
             .recorder()
             .publish_warning(
@@ -259,33 +346,8 @@ async fn apply(ingress: Arc<Ingress>, ctx: &Context) -> Result<Action, Error> {
                 ),
             )
             .await;
-        let _ = Api::<Ingress>::namespaced(ctx.client.clone(), &ingress_ns)
-            .patch_status(
-                &ingress_name,
-                &PatchParams::apply(crate::FIELD_MANAGER).force(),
-                &Patch::Apply(serde_json::json!({
-                    "apiVersion": "networking.k8s.io/v1",
-                    "kind": "Ingress",
-                    "metadata": { "name": ingress_name, "namespace": ingress_ns },
-                    "status": {}
-                })),
-            )
-            .await;
         deregister_and_cleanup(ctx, op_ns, &names, &ingress, &annotations.headscale_ref).await?;
-        let remaining: Vec<String> = ingress
-            .finalizers()
-            .iter()
-            .filter(|f| f.as_str() != FINALIZER)
-            .cloned()
-            .collect();
-        Api::<Ingress>::namespaced(ctx.client.clone(), &ingress_ns)
-            .patch(
-                &ingress_name,
-                &PatchParams::default(),
-                &Patch::Merge(serde_json::json!({ "metadata": { "finalizers": remaining } })),
-            )
-            .await
-            .map_err(Error::Kube)?;
+        release_ingress(ctx, &ingress_ns, &ingress_name).await?;
         return Ok(Action::await_change());
     }
 
@@ -382,6 +444,7 @@ async fn apply(ingress: Arc<Ingress>, ctx: &Context) -> Result<Action, Error> {
 
     let wg_node_port = apply_wireguard_service(&child, &names).await?;
 
+    // If headscale_ref changed, deregister from old HI and reset secrets before ensure_auth_key.
     let retarget = match Api::<Secret>::namespaced(ctx.client.clone(), op_ns)
         .get(&names.state_secret_name)
         .await
@@ -528,6 +591,27 @@ async fn apply(ingress: Arc<Ingress>, ctx: &Context) -> Result<Action, Error> {
             )
             .await;
     }
+
+    // Record ownership so observers can discover which operator deployment
+    // manages this Ingress without inspecting finalizers.
+    Api::<Ingress>::namespaced(ctx.client.clone(), &ingress_ns)
+        .patch(
+            &ingress_name,
+            &PatchParams::apply(&crate::field_manager(op_ns)).force(),
+            &Patch::Apply(serde_json::json!({
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "Ingress",
+                "metadata": {
+                    "name": ingress_name,
+                    "namespace": ingress_ns,
+                    "annotations": {
+                        crate::ANNOTATION_CLAIMED_BY: op_ns,
+                    }
+                }
+            })),
+        )
+        .await
+        .map_err(Error::Kube)?;
 
     if set_tags_failed {
         return Ok(Action::requeue(Duration::from_secs(30)));
@@ -699,6 +783,63 @@ where
     }
 }
 
+/// Removes our finalizer from the Ingress and clears the `claimed-by` annotation
+/// and `status.loadBalancer`.
+///
+/// Used when this deployment relinquishes ownership due to a sharding change
+/// or a `watchedNamespaces` revocation.
+///
+/// NOTE: kube::runtime::finalizer only removes finalizers during Cleanup (i.e.
+/// when deletionTimestamp is set). Ownership release on a live object has no
+/// framework support, so this function patches the finalizer array directly.
+/// To avoid silently dropping concurrent finalizer additions, it re-fetches the
+/// live object and includes its resourceVersion as an optimistic-lock precondition;
+/// a 409 conflict causes the reconcile to requeue and retry.
+async fn release_ingress(ctx: &Context, ingress_ns: &str, ingress_name: &str) -> Result<(), Error> {
+    let api = Api::<Ingress>::namespaced(ctx.client.clone(), ingress_ns);
+
+    // Clear status first so the tailnet IP does not outlive the proxy.
+    api.patch_status(
+        ingress_name,
+        &PatchParams::apply(&crate::field_manager(&ctx.operator_namespace)).force(),
+        &Patch::Apply(serde_json::json!({
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "Ingress",
+            "metadata": { "name": ingress_name, "namespace": ingress_ns },
+            "status": {}
+        })),
+    )
+    .await
+    .map_err(Error::Kube)?;
+
+    // Re-fetch to get the live finalizer list and current resourceVersion.
+    let live = api.get(ingress_name).await.map_err(Error::Kube)?;
+    let our_finalizer = crate::finalizer(&ctx.operator_namespace);
+    let remaining: Vec<String> = live
+        .finalizers()
+        .iter()
+        .filter(|f| f.as_str() != our_finalizer)
+        .cloned()
+        .collect();
+    let resource_version = live.resource_version().unwrap_or_default();
+    api.patch(
+        ingress_name,
+        &PatchParams::default(),
+        &Patch::Merge(serde_json::json!({
+            "metadata": {
+                "resourceVersion": resource_version,
+                "finalizers": remaining,
+                "annotations": {
+                    crate::ANNOTATION_CLAIMED_BY: serde_json::Value::Null,
+                }
+            }
+        })),
+    )
+    .await
+    .map_err(Error::Kube)?;
+    Ok(())
+}
+
 // ── headscale connection ──────────────────────────────────────────────────────
 
 pub(crate) async fn headscale_connect(
@@ -768,6 +909,79 @@ mod tests {
     use crate::controllers::ingress::test_support::{headmaster_ingress, test_ctx, test_ingress};
     use crate::test_support::{FaultService, all_404, all_500};
 
+    // ── ensure_ingress_class tests ────────────────────────────────────────────
+
+    fn ingressclass_ok(_: &http::Method, _: &str) -> (u16, Vec<u8>) {
+        (
+            200,
+            serde_json::json!({
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "IngressClass",
+                "metadata": {"name": INGRESS_CLASS_NAME, "resourceVersion": "1"}
+            })
+            .to_string()
+            .into_bytes(),
+        )
+    }
+
+    fn ingressclass_claim_409(m: &http::Method, path: &str) -> (u16, Vec<u8>) {
+        // The claim-default annotation patch uses a field manager name containing
+        // "claim-default". Simulate a conflict on that call only.
+        if *m == http::Method::PATCH && path.contains("claim-default") {
+            (409, br#"{"code":409,"reason":"Conflict"}"#.to_vec())
+        } else {
+            ingressclass_ok(m, path)
+        }
+    }
+
+    #[tokio::test]
+    async fn ensure_ingress_class_none_claims_when_unclaimed() {
+        let client = FaultService::client(ingressclass_ok);
+        let result = ensure_ingress_class(&client, "default", None).await;
+        assert!(
+            result.unwrap(),
+            "None must return true when the claim patch succeeds"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_ingress_class_none_backs_off_when_contested() {
+        let client = FaultService::client(ingressclass_claim_409);
+        let result = ensure_ingress_class(&client, "default", None).await;
+        assert!(
+            !result.unwrap(),
+            "None must return false (not Err) when the claim patch returns 409"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_ingress_class_force_overwrites_existing_claim() {
+        // force=true uses .force() on the claim patch; ingressclass_ok returns 200
+        // for every PATCH so we verify it returns true.
+        let (client, calls) = FaultService::tracked(ingressclass_ok);
+        let result = ensure_ingress_class(&client, "default", Some(true)).await;
+        assert!(result.unwrap(), "Some(true) must return true");
+        let recorded = calls.lock().unwrap();
+        let patch_count = recorded.iter().filter(|(m, _)| m == "PATCH").count();
+        assert_eq!(
+            patch_count, 2,
+            "two PATCHes must be issued: spec then claim"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_ingress_class_off_does_not_claim() {
+        let (client, calls) = FaultService::tracked(ingressclass_ok);
+        let result = ensure_ingress_class(&client, "default", Some(false)).await;
+        assert!(!result.unwrap(), "Some(false) must return false");
+        let recorded = calls.lock().unwrap();
+        let patch_count = recorded.iter().filter(|(m, _)| m == "PATCH").count();
+        assert_eq!(
+            patch_count, 1,
+            "only the spec PATCH must be issued; claim must not be touched"
+        );
+    }
+
     // ── namespace_is_deleting tests ───────────────────────────────────────────
 
     #[tokio::test]
@@ -819,51 +1033,193 @@ mod tests {
         );
     }
 
-    // ── ingress_watch_namespaces tests ────────────────────────────────────────
+    // ── sharding gate tests ───────────────────────────────────────────────────
 
     #[tokio::test]
-    async fn reconcile_skips_ingress_in_unwatched_namespace() {
-        // all_500 means any K8s call would fail; if reconcile reaches the
-        // finalizer it returns Err. Returning Ok proves the namespace filter fired.
-        let ctx = Arc::new(Context {
-            ingress_watch_namespaces: vec!["prod".to_string()],
-            ..test_ctx(FaultService::client(all_500))
+    async fn reconcile_skips_ingress_targeted_at_other_deployment() {
+        use crate::controllers::ingress::ANNOTATION_CONFIG;
+        use k8s_openapi::api::networking::v1::IngressSpec;
+        use std::collections::BTreeMap;
+
+        // Ingress has headscale-namespace pointing to "other-ns", ctx is "default".
+        // No finalizer from us → sharding gate fires → await_change (no K8s calls needed).
+        let ingress = Arc::new(Ingress {
+            metadata: ObjectMeta {
+                name: Some("test-ingress".to_string()),
+                namespace: Some("app-ns".to_string()),
+                uid: Some("uid-1".to_string()),
+                annotations: Some(BTreeMap::from([
+                    (
+                        "kubernetes.io/ingress.class".to_string(),
+                        "headmaster".to_string(),
+                    ),
+                    (
+                        ANNOTATION_CONFIG.to_string(),
+                        r#"{"headscale-ref":"main","user":"alice","headscale-namespace":"other-ns"}"#
+                            .to_string(),
+                    ),
+                ])),
+                ..Default::default()
+            },
+            spec: Some(IngressSpec {
+                ingress_class_name: Some(INGRESS_CLASS_NAME.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
         });
-        let result = super::reconcile(Arc::new(headmaster_ingress("staging")), ctx).await;
+
+        let ctx = Arc::new(test_ctx(FaultService::client(all_500)));
+        let result = super::reconcile(ingress, ctx).await;
         assert!(
             result.is_ok(),
-            "ingress in a non-watched namespace must be silently skipped"
+            "Ingress targeting another deployment must be silently skipped"
         );
     }
 
     #[tokio::test]
-    async fn reconcile_processes_ingress_in_watched_namespace() {
-        // Ingress IS in the watched namespace, so reconcile proceeds past the
-        // filter and reaches the K8s finalizer call, which fails with 500.
+    async fn reconcile_skips_when_claim_default_false_and_no_explicit_target() {
+        // ctx has claim_default=false and the Ingress has no headscale-namespace annotation.
+        // No finalizer → sharding gate fires → await_change.
         let ctx = Arc::new(Context {
-            ingress_watch_namespaces: vec!["prod".to_string()],
+            claim_default: false,
             ..test_ctx(FaultService::client(all_500))
         });
-        let result = super::reconcile(Arc::new(headmaster_ingress("prod")), ctx).await;
+        let result = super::reconcile(Arc::new(headmaster_ingress("any-namespace")), ctx).await;
         assert!(
-            result.is_err(),
-            "ingress in a watched namespace must be processed (K8s call expected)"
+            result.is_ok(),
+            "non-default deployment must skip Ingresses with no explicit target"
         );
     }
 
     #[tokio::test]
-    async fn reconcile_processes_all_namespaces_when_watch_list_empty() {
-        // Empty watch list = watch all. Reconcile proceeds and hits the K8s
-        // finalizer call, which fails with 500.
+    async fn reconcile_processes_ingress_when_claim_default_true() {
+        use crate::controllers::ingress::ANNOTATION_CONFIG;
+        use std::collections::BTreeMap;
+
+        // ctx has claim_default=true (test_ctx default). The Ingress has a valid config
+        // annotation so Layer 2 proceeds to a K8s call (HeadscaleInstance lookup), which
+        // the all_500 mock causes to fail with Err — proving adoption was attempted.
+        let ingress = Arc::new(Ingress {
+            metadata: ObjectMeta {
+                name: Some("test-ingress".to_string()),
+                namespace: Some("any-namespace".to_string()),
+                uid: Some("uid-1".to_string()),
+                annotations: Some(BTreeMap::from([(
+                    ANNOTATION_CONFIG.to_string(),
+                    r#"{"headscale-ref":"main","user":"alice"}"#.to_string(),
+                )])),
+                ..Default::default()
+            },
+            spec: Some(k8s_openapi::api::networking::v1::IngressSpec {
+                ingress_class_name: Some(INGRESS_CLASS_NAME.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
         let ctx = Arc::new(test_ctx(FaultService::client(all_500)));
-        let result = super::reconcile(Arc::new(headmaster_ingress("any-namespace")), ctx).await;
+        let result = super::reconcile(ingress, ctx).await;
         assert!(
             result.is_err(),
-            "with an empty watch list all namespaces must be processed"
+            "default deployment must process Ingresses with a valid config annotation (K8s call expected)"
         );
     }
 
-    // ── watchedNamespaces finalizer removal tests ─────────────────────────────
+    #[tokio::test]
+    async fn reconcile_skips_ingress_with_no_config_annotation() {
+        // Ingress has ingressClassName: headmaster but no headmaster config annotation.
+        // Layer 2 parse fails → await_change (no finalizer stamped, no K8s calls after parse).
+        let ctx = Arc::new(test_ctx(FaultService::client(all_500)));
+        let result = super::reconcile(Arc::new(headmaster_ingress("any-namespace")), ctx).await;
+        // headmaster_ingress has no config annotation → parse returns Err → gate skips adoption.
+        // But the mock returns 500 for any K8s call, and layer 2 would need to call the instance
+        // API if parse succeeded. Since parse fails first, no K8s calls are made → Ok.
+        assert!(
+            result.is_ok(),
+            "Ingress without config annotation must be silently skipped (no finalizer stamped)"
+        );
+    }
+
+    // ── class release tests ───────────────────────────────────────────────────
+
+    fn class_changed_responder(m: &http::Method, path: &str) -> (u16, Vec<u8>) {
+        if *m == http::Method::GET && path.contains("/ingresses/") {
+            // Re-fetch in release_ingress: return Ingress with our finalizer and a resourceVersion.
+            let our_finalizer = crate::finalizer("default");
+            (
+                200,
+                serde_json::json!({
+                    "apiVersion": "networking.k8s.io/v1",
+                    "kind": "Ingress",
+                    "metadata": {
+                        "name": "test-ingress",
+                        "namespace": "app-ns",
+                        "resourceVersion": "42",
+                        "finalizers": [our_finalizer]
+                    }
+                })
+                .to_string()
+                .into_bytes(),
+            )
+        } else if *m == http::Method::PATCH {
+            (
+                200,
+                serde_json::json!({
+                    "apiVersion": "networking.k8s.io/v1",
+                    "kind": "Ingress",
+                    "metadata": {"name": "test-ingress", "namespace": "app-ns", "resourceVersion": "43"}
+                })
+                .to_string()
+                .into_bytes(),
+            )
+        } else {
+            // State secret, StatefulSet, etc. — 404 so cleanup_proxy_resources proceeds cleanly.
+            (404, br#"{"code":404}"#.to_vec())
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_releases_ingress_when_ingressclass_changes() {
+        use k8s_openapi::api::networking::v1::IngressSpec;
+
+        // Ingress previously had ingressClassName: headmaster (so we own it),
+        // but the user changed it to "nginx". Our finalizer is still present.
+        let our_finalizer = crate::finalizer("default");
+        let ingress = Arc::new(Ingress {
+            metadata: ObjectMeta {
+                name: Some("test-ingress".to_string()),
+                namespace: Some("app-ns".to_string()),
+                uid: Some("uid-class-change-1".to_string()),
+                finalizers: Some(vec![our_finalizer]),
+                ..Default::default()
+            },
+            spec: Some(IngressSpec {
+                ingress_class_name: Some("nginx".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        let (k8s, calls) = FaultService::tracked(class_changed_responder);
+        let ctx = test_ctx(k8s);
+
+        let result = apply(ingress, &ctx).await;
+        assert!(
+            result.is_ok(),
+            "apply must succeed when ingressClassName changes away from headmaster"
+        );
+
+        let recorded = calls.lock().unwrap();
+        let has_ingress_patch = recorded
+            .iter()
+            .any(|(m, p)| m == "PATCH" && p.contains("/ingresses/test-ingress"));
+        assert!(
+            has_ingress_patch,
+            "a PATCH to release the finalizer must be issued when class changes: {recorded:?}"
+        );
+    }
+
+    // ── watchedNamespaces release tests ──────────────────────────────────────
 
     fn instance_with_watched_namespaces_responder(m: &http::Method, path: &str) -> (u16, Vec<u8>) {
         use crate::types::{
@@ -903,6 +1259,23 @@ mod tests {
                 }),
             };
             (200, serde_json::to_vec(&instance).unwrap())
+        } else if *m == http::Method::GET && path.contains("/ingresses/") {
+            // Return a plausible Ingress with resourceVersion for the release_ingress re-fetch.
+            (
+                200,
+                serde_json::json!({
+                    "apiVersion": "networking.k8s.io/v1",
+                    "kind": "Ingress",
+                    "metadata": {
+                        "name": "test-ingress",
+                        "namespace": "staging",
+                        "resourceVersion": "2",
+                        "finalizers": ["headmaster.potatonode.github.io/cleanup-default"]
+                    }
+                })
+                .to_string()
+                .into_bytes(),
+            )
         } else if *m == http::Method::GET && path.contains("/namespaces/staging") {
             // Return a live namespace without deletionTimestamp so namespace_is_deleting returns false.
             let ns = K8sNamespace {
@@ -914,7 +1287,7 @@ mod tests {
             };
             (200, serde_json::to_vec(&ns).unwrap())
         } else if *m == http::Method::PATCH {
-            // Return a plausible Ingress JSON for the status clear and finalizer patch.
+            // Return a plausible Ingress JSON for the finalizer patch.
             (200, serde_json::json!({
                 "apiVersion": "networking.k8s.io/v1",
                 "kind": "Ingress",
@@ -932,12 +1305,13 @@ mod tests {
         use k8s_openapi::api::networking::v1::IngressSpec;
         use std::collections::BTreeMap;
 
+        let our_finalizer = crate::finalizer("default");
         let ingress = Arc::new(Ingress {
             metadata: ObjectMeta {
                 name: Some("test-ingress".to_string()),
                 namespace: Some("staging".to_string()),
                 uid: Some("uid-ing-1".to_string()),
-                finalizers: Some(vec![FINALIZER.to_string()]),
+                finalizers: Some(vec![our_finalizer.clone()]),
                 annotations: Some(BTreeMap::from([(
                     ANNOTATION_CONFIG.to_string(),
                     r#"{"headscale-ref":"main","user":"alice"}"#.to_string(),

@@ -46,6 +46,10 @@ pub struct IngressAccessGrant {
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct IngressAnnotations {
     pub headscale_ref: String,
+    /// Operator deployment namespace this Ingress targets. `None` means use the
+    /// default deployment (the one with `claim_default = true`).
+    #[serde(default)]
+    pub headscale_namespace: Option<String>,
     pub user: Option<String>,
     #[serde(default)]
     pub managed_key_tags: Vec<String>,
@@ -85,6 +89,15 @@ impl IngressAnnotations {
         serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .and_then(|v| v.get("headscale-ref")?.as_str().map(String::from))
+    }
+
+    /// Cheaply extracts `headscale-namespace` without full validation. Used in
+    /// the sharding gate before `parse()` runs.
+    pub fn headscale_namespace(ingress: &Ingress) -> Option<String> {
+        let json = ingress.annotations().get(ANNOTATION_CONFIG)?;
+        serde_json::from_str::<serde_json::Value>(json)
+            .ok()
+            .and_then(|v| v.get("headscale-namespace")?.as_str().map(String::from))
     }
 }
 
@@ -206,6 +219,21 @@ mod tests {
             IngressAnnotations::headscale_ref(&ing).as_deref(),
             Some("headscale")
         );
+    }
+
+    #[test]
+    fn headscale_namespace_extracts_from_config() {
+        let ingress = ingress_with_config(serde_json::json!({"headscale-namespace": "infra-prod"}));
+        assert_eq!(
+            IngressAnnotations::headscale_namespace(&ingress).as_deref(),
+            Some("infra-prod")
+        );
+    }
+
+    #[test]
+    fn headscale_namespace_absent_returns_none() {
+        let ing = make_test_ingress(Some("alice"), None);
+        assert!(IngressAnnotations::headscale_namespace(&ing).is_none());
     }
 
     #[test]

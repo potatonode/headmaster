@@ -48,7 +48,12 @@ impl tower::Service<http::Request<kube::client::Body>> for FaultService {
 
     fn call(&mut self, req: http::Request<kube::client::Body>) -> Self::Future {
         let method = req.method().clone();
-        let path = req.uri().path().to_string();
+        // Include query string so responders can distinguish calls by fieldManager, etc.
+        let path = req
+            .uri()
+            .path_and_query()
+            .map(|pq| pq.as_str().to_string())
+            .unwrap_or_else(|| req.uri().path().to_string());
         self.calls
             .lock()
             .unwrap()

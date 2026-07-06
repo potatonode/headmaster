@@ -21,7 +21,7 @@ pub(super) fn test_ctx(client: kube::Client) -> Context {
         headscale_image: "test".to_string(),
         proxy_image: "test".to_string(),
         operator_image: "test".to_string(),
-        ingress_watch_namespaces: vec![],
+        claim_default: true,
     }
 }
 
@@ -41,6 +41,7 @@ pub(super) fn minimal_instance(name: &str) -> HeadscaleInstance {
                 size: "1Gi".to_string(),
                 ..Default::default()
             },
+            watched_namespaces: vec!["*".to_string()],
             ..Default::default()
         },
         status: None,
