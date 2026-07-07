@@ -181,3 +181,38 @@ jobs:
       - run: |
           result="${{ needs.test-e2e.result }}"
           [[ "$result" == "success" ]] || exit 1
+
+  test-release-please:
+    name: Release please (dry run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release-please version from action
+        id: rp-version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          action_ref=$(grep -m1 'release-please-action@' .github/workflows/release-please.yml | sed 's/.*@//')
+          version=$(gh api "repos/googleapis/release-please-action/contents/package.json?ref=${action_ref}" \
+            --jq '.content' | base64 -d | jq -r '.dependencies["release-please"]' | tr -d '^~')
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Dry run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx release-please@${{ steps.rp-version.outputs.version }} release-pr \
+            --token="${GH_TOKEN}" \
+            --repo-url=${{ github.repository }} \
+            --config-file=release-please-config.json \
+            --manifest-file=.release-please-manifest.json \
+            --target-branch=${{ github.head_ref || github.ref_name }} \
+            --local \
+            --local-path=. \
+            --dry-run
