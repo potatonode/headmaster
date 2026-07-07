@@ -27,6 +27,11 @@
       "groupSlug": "headscale-image"
     }
   ],
+  "postUpgradeTasks": {
+    "commands": ["npx prettier --write chart/README.md"],
+    "fileFilters": ["chart/README.md"],
+    "executionMode": "branch"
+  },
   "customManagers": [
     {
       "customType": "regex",
