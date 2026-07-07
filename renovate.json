@@ -35,7 +35,28 @@
         "headscaleImage:\\n\\s+repository:\\s*(?<depName>[^\\n]+)\\n\\s+tag:\\s*(?<currentValue>[^\\n]+)",
         "proxyImage:\\n\\s+repository:\\s*(?<depName>[^\\n]+)\\n\\s+tag:\\s*(?<currentValue>[^\\n]+)"
       ],
-      "datasourceTemplate": "docker"
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^chart/README\\.md$"],
+      "matchStrings": [
+        "\\| `headscaleImage\\.tag`\\s+\\| `string`\\s+\\| `(?<currentValue>[^`]+)`"
+      ],
+      "depNameTemplate": "ghcr.io/juanfont/headscale",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^chart/README\\.md$"],
+      "matchStrings": [
+        "\\| `proxyImage\\.tag`\\s+\\| `string`\\s+\\| `(?<currentValue>[^`]+)`"
+      ],
+      "depNameTemplate": "tailscale/tailscale",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver"
     },
     {
       "customType": "regex",
