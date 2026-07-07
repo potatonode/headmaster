@@ -40,16 +40,23 @@ jobs:
           ref: main
           token: ${{ steps.app-token.outputs.token }}
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Calculate next version
         id: next
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "version=${VERSION}-next" >> "$GITHUB_OUTPUT"
 
-      - name: Bump Cargo.toml
+      - name: Bump Cargo.toml files
         run: |
           NEXT="${{ steps.next.outputs.version }}"
-          sed -i "s/^version = \"[^\"]*\"/version = \"$NEXT\"/" Cargo.toml
+          for f in Cargo.toml */Cargo.toml; do
+            sed -i "s/^version = \"[^\"]*\"/version = \"$NEXT\"/" "$f"
+          done
+
+      - name: Update Cargo.lock
+        run: cargo fetch
 
       - name: Bump Chart.yaml
         run: |
@@ -61,6 +68,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml chart/Chart.yaml
+          git add Cargo.toml */Cargo.toml Cargo.lock chart/Chart.yaml
           git commit -m "chore: mark ${{ steps.next.outputs.version }}"
           git push origin main
