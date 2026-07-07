@@ -146,30 +146,28 @@ tasks:
           --set image.tag=dev \
           --set image.pullPolicy=Never \
           --set "rustLog=operator=debug\,scim=debug\,kube=debug\,kube_client=debug\,kube_runtime=debug\,info" \
-          --set headscaleInstances.main.serverUrl="http://{{.HEADSCALE_HOSTNAME}}" \
-          --set headscaleInstances.main.dnsBaseDomain="{{.TAILNET_DOMAIN}}" \
+          --set headscaleInstances.main.serverUrl=http://{{.HEADSCALE_HOSTNAME}} \
+          --set headscaleInstances.main.dnsBaseDomain={{.TAILNET_DOMAIN}} \
           --set headscaleInstances.main.extraConfig.log.level=debug \
-          --set "headscaleInstances.main.scim.storage.size=100Mi" \
-          --set "headscaleInstances.main.scim.oidcIssuer=http://{{.POCKET_ID_HOSTNAME}}"
-      - |
-        helm upgrade --install pocket-id-operator oci://ghcr.io/aclerici38/charts/pocket-id-operator \
-          --kube-context {{.KUBE_CONTEXT}} \
-          --namespace {{.TEST_NS}} \
-          --wait --timeout=120s \
-          -f examples/values-pocket-id.yaml \
-          --set instance.spec.appUrl="http://{{.POCKET_ID_HOSTNAME}}"
+          --set headscaleInstances.main.scim.storage.size=100Mi \
+          --set headscaleInstances.main.scim.oidcIssuer=http://{{.POCKET_ID_HOSTNAME}}
       - |
         kubectl --context {{.KUBE_CONTEXT}} create secret generic pocket-id-encryption-key \
           --namespace {{.TEST_NS}} \
           --from-literal=key=$(openssl rand -base64 24) \
           --dry-run=client -o yaml | kubectl --context {{.KUBE_CONTEXT}} apply -f -
       - |
-        yq '
-          (select(.kind == "Ingress" and .metadata.name == "main") |
-            .metadata.namespace = "{{.TEST_NS}}" |
+        helm upgrade --install pocket-id-operator oci://ghcr.io/aclerici38/charts/pocket-id-operator \
+          --kube-context {{.KUBE_CONTEXT}} \
+          --namespace {{.TEST_NS}} \
+          --wait --timeout=120s \
+          -f examples/values-pocket-id.yaml \
+          --set instance.spec.appUrl=http://{{.POCKET_ID_HOSTNAME}}
+      - |
+        yq '.metadata.namespace = "{{.TEST_NS}}" |
+          with(select(.kind == "Ingress" and .metadata.name == "main");
             .spec.rules[0].host = "{{.HEADSCALE_HOSTNAME}}") |
-          (select(.kind == "PocketIDOIDCClient") |
-            .metadata.namespace = "{{.TEST_NS}}" |
+          with(select(.kind == "PocketIDOIDCClient");
             .spec.callbackUrls[0] = "http://{{.HEADSCALE_HOSTNAME}}/oidc/callback" |
             .spec.scim.endpoint = "http://headscale-scim-main.{{.TEST_NS}}.svc:8081/scim/v2")
         ' examples/manifests/headscale.yaml \
@@ -177,9 +175,9 @@ tasks:
       - |
         yq 'select(.metadata.name != "pocket-id-encryption-key") |
           .metadata.namespace = "{{.TEST_NS}}" |
-          (select(.kind == "Secret" and .metadata.name == "pocket-id-static-api-key") |
+          with(select(.kind == "Secret" and .metadata.name == "pocket-id-static-api-key");
             .stringData.token = "{{.POCKET_ID_API_KEY}}") |
-          (select(.kind == "Ingress") |
+          with(select(.kind == "Ingress");
             .spec.rules[0].host = "{{.POCKET_ID_HOSTNAME}}")
         ' examples/manifests/pocket-id.yaml \
         | kubectl --context {{.KUBE_CONTEXT}} apply -f -
