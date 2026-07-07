@@ -51,7 +51,7 @@ jobs:
       - name: Bump Cargo.toml files
         run: |
           NEXT="${{ steps.next.outputs.version }}"
-          for f in Cargo.toml operator/Cargo.toml headscale-client/Cargo.toml scim/Cargo.toml integration-tests/Cargo.toml k8s-ext/Cargo.toml; do
+          for f in Cargo.toml */Cargo.toml; do
             sed -i "s/^version = \"[^\"]*\"/version = \"$NEXT\"/" "$f"
           done
 
@@ -68,6 +68,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml operator/Cargo.toml headscale-client/Cargo.toml scim/Cargo.toml integration-tests/Cargo.toml k8s-ext/Cargo.toml Cargo.lock chart/Chart.yaml
+          git add Cargo.toml */Cargo.toml Cargo.lock chart/Chart.yaml
           git commit -m "chore: mark ${{ steps.next.outputs.version }}"
           git push origin main
