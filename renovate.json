@@ -22,11 +22,16 @@
       "separateMajorMinor": false
     },
     {
-      "matchPackageNames": ["ghcr.io/juanfont/headscale"],
+      "matchPackageNames": ["headscale/headscale"],
       "groupName": "headscale image",
       "groupSlug": "headscale-image"
     }
   ],
+  "postUpgradeTasks": {
+    "commands": ["npx prettier --write chart/README.md"],
+    "fileFilters": ["chart/README.md"],
+    "executionMode": "branch"
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -44,7 +49,7 @@
       "matchStrings": [
         "\\| `headscaleImage\\.tag`\\s+\\| `string`\\s+\\| `(?<currentValue>[^`]+)`"
       ],
-      "depNameTemplate": "ghcr.io/juanfont/headscale",
+      "depNameTemplate": "headscale/headscale",
       "datasourceTemplate": "docker",
       "versioningTemplate": "semver"
     },
