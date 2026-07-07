@@ -6,4 +6,4 @@ dependencies:
   repository: oci://ghcr.io/aclerici38/charts
   version: 0.7.1
 digest: sha256:3e03ea1e428eab13ff598de0051fcbb56daf3598933fe9a701c087c7c9d1919d
-generated: "2026-06-05T01:27:52.931186-04:00"
+generated: "2026-07-07T13:07:51.362022-04:00"

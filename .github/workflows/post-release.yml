@@ -64,10 +64,15 @@ jobs:
           sed -i "s/^version: .*/version: $NEXT/" chart/Chart.yaml
           sed -i "s/^appVersion: .*/appVersion: \"$NEXT\"/" chart/Chart.yaml
 
+      - name: Bump examples/Chart.yaml headmaster dep version
+        run: |
+          NEXT="${{ steps.next.outputs.version }}"
+          yq -i '(.dependencies[] | select(.name == "headmaster") | .version) = "'$NEXT'"' examples/Chart.yaml
+
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml */Cargo.toml Cargo.lock chart/Chart.yaml
+          git add Cargo.toml */Cargo.toml Cargo.lock chart/Chart.yaml examples/Chart.yaml
           git commit -m "chore: mark ${{ steps.next.outputs.version }}"
           git push origin main
