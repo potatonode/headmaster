@@ -14,7 +14,7 @@ name: post-release
 # explicitly hold the app credentials — nothing else can bypass.
 #
 # Two repo secrets are required:
-#   BUMP_APP_ID          — the App ID shown on the app's settings page
+#   BUMP_APP_ID          — the App ID or Client ID shown on the app's settings page
 #   BUMP_APP_PRIVATE_KEY — a private key generated on the app's settings page
 
 on:
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/create-github-app-token@v3
         id: app-token
         with:
-          app-id: ${{ secrets.BUMP_APP_ID }}
+          client-id: ${{ secrets.BUMP_APP_ID }}
           private-key: ${{ secrets.BUMP_APP_PRIVATE_KEY }}
 
       - uses: actions/checkout@v7
