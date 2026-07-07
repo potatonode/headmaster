@@ -1,0 +1,19 @@
+instance:
+  enabled: true
+  spec:
+    encryptionKey:
+      valueFrom:
+        secretKeyRef:
+          name: pocket-id-encryption-key
+          key: key
+    appUrl: "http://pocket-id.example.com" # replace with your URL
+    analyticsDisabled: true
+    versionCheckDisabled: true
+users:
+  - name: headmaster-admin
+    spec:
+      firstName:
+        value: Headmaster
+      lastName:
+        value: Admin
+      admin: true

@@ -1,0 +1,40 @@
+headscaleInstances:
+  main:
+    serverUrl: "https://headscale.example.com" # replace with your URL
+    dnsBaseDomain: "ts.example.com" # replace with your tailnet domain
+    storage:
+      size: 5Gi
+    scim:
+      storage:
+        size: 1Gi
+      policyUserKey: external_id
+      oidcIssuer: "https://pocket-id.example.com" # replace with your Pocket ID URL
+    policy:
+      inline: |
+        {
+          "tagOwners": {
+            "tag:headmaster": [],
+            "tag:server":     []
+          },
+          "acls": [
+            {
+              "action": "accept",
+              "src": ["*", "tag:server", "tag:headmaster"],
+              "dst": ["*:*", "100.64.0.0/10:*"]
+            }
+          ]
+        }
+    extraConfig:
+      log:
+        level: info
+      derp:
+        urls:
+          - https://controlplane.tailscale.com/derpmap/default
+        auto_update_enabled: true
+        update_frequency: 24h
+      prefixes:
+        v4: "100.64.0.0/10"
+        v6: "fd7a:115c:a1e0::/48"
+        allocation: sequential
+      taildrop:
+        enabled: false

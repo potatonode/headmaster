@@ -16,11 +16,6 @@
           "type": "yaml",
           "path": "chart/Chart.yaml",
           "jsonpath": "$.appVersion"
-        },
-        {
-          "type": "yaml",
-          "path": "examples/Chart.yaml",
-          "jsonpath": "$.dependencies[?(@.name=='headmaster')].version"
         }
       ]
     }
