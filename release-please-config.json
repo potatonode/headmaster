@@ -1,22 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "release-type": "rust",
+  "release-type": "generic",
   "bump-minor-pre-major": true,
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
-      "versioned-files": ["Cargo.toml", "Cargo.lock"],
-      "extra-files": [
-        {
-          "type": "yaml",
-          "path": "chart/Chart.yaml",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "yaml",
-          "path": "chart/Chart.yaml",
-          "jsonpath": "$.appVersion"
-        }
+      "versioned-files": [
+        "Cargo.toml",
+        "chart/Chart.yaml"
       ]
     }
   }

@@ -26,6 +26,7 @@ COPY k8s-ext/ k8s-ext/
 COPY .git/ .git/
 RUN --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
+    cargo fetch && \
     cargo build --locked --release --bin operator --bin headmaster-scim && \
     cp ./target/release/operator /bin/headmaster && \
     cp ./target/release/headmaster-scim /bin/headmaster-scim
