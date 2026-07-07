@@ -36,11 +36,19 @@ jobs:
       - run: task lint
 
   test-unit:
-    name: Unit tests
-    runs-on: ubuntu-latest
+    name: Unit tests (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@v7
 
@@ -49,19 +57,37 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          prefix-key: test-unit
+          prefix-key: test-unit-${{ matrix.arch }}
 
       - name: Install Task
         run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
       - run: task test-unit
 
-  test-functional:
-    name: Functional tests
+  test-unit-ok:
+    name: Unit tests
+    needs: test-unit
     runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - run: |
+          result="${{ needs.test-unit.result }}"
+          [[ "$result" == "success" ]] || exit 1
+
+  test-functional:
+    name: Functional tests (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@v7
 
@@ -70,7 +96,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          prefix-key: test-functional
+          prefix-key: test-functional-${{ matrix.arch }}
 
       - uses: actions/setup-go@v6
         with:
@@ -85,13 +111,31 @@ jobs:
 
       - run: task test-functional
 
-  test-e2e:
-    name: E2E tests
+  test-functional-ok:
+    name: Functional tests
+    needs: test-functional
     runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - run: |
+          result="${{ needs.test-functional.result }}"
+          [[ "$result" == "success" ]] || exit 1
+
+  test-e2e:
+    name: E2E tests (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
     steps:
       - uses: actions/checkout@v7
 
@@ -100,14 +144,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: "true"
-          prefix-key: test-e2e
+          prefix-key: test-e2e-${{ matrix.arch }}
 
       - name: Install Task
         run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
       - name: Install k3d
         run: |
-          curl -sL https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-amd64 \
+          curl -sL "https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-${{ matrix.arch }}" \
             -o /usr/local/bin/k3d && chmod +x /usr/local/bin/k3d
 
       - uses: azure/setup-helm@v5
@@ -125,5 +169,15 @@ jobs:
       - run: task test-e2e
         env:
           CACHE_ARGS: >-
-            --cache-from type=registry,ref=ghcr.io/potatonode/headmaster:buildcache
-            --cache-to type=registry,ref=ghcr.io/potatonode/headmaster:buildcache,mode=max
+            --cache-from type=registry,ref=ghcr.io/potatonode/headmaster:buildcache-${{ matrix.arch }}
+            --cache-to type=registry,ref=ghcr.io/potatonode/headmaster:buildcache-${{ matrix.arch }},mode=max
+
+  test-e2e-ok:
+    name: E2E tests
+    needs: test-e2e
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - run: |
+          result="${{ needs.test-e2e.result }}"
+          [[ "$result" == "success" ]] || exit 1
