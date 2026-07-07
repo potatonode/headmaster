@@ -1,0 +1,38 @@
+# Generate the encryption key: kubectl create secret generic pocket-id-encryption-key \
+#   --from-literal=key=$(openssl rand -base64 24)
+# Or apply this manifest after substituting <ENCRYPTION_KEY> with a random string
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pocket-id-encryption-key
+  namespace: headmaster-system   # replace with your namespace
+stringData:
+  key: "<ENCRYPTION_KEY>"
+---
+# Replace <POCKET_ID_API_KEY> with your Pocket ID static API key
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pocket-id-static-api-key
+  namespace: headmaster-system   # replace with your namespace
+stringData:
+  token: "<POCKET_ID_API_KEY>"
+---
+# Replace <POCKET_ID_HOSTNAME> with the hostname from your pocket-id appUrl
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pocket-id
+  namespace: headmaster-system   # replace with your namespace
+spec:
+  rules:
+    - host: <POCKET_ID_HOSTNAME>
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pocket-id
+                port:
+                  number: 1411

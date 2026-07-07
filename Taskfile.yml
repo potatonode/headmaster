@@ -38,11 +38,6 @@ tasks:
       - cargo run --bin crdgen -p operator check chart/
       - cargo run --bin chartdoc -p operator check chart/
       - helm lint chart/ --strict
-      - helm dependency build examples/
-      - helm lint examples/ --strict
-        --set pocketId.apiKey=lint-placeholder
-        --set headmaster.headscaleInstances.main.serverUrl=http://lint-placeholder
-        --set headmaster.headscaleInstances.main.dnsBaseDomain=lint-placeholder
 
   test-unit:
     desc: Run unit tests (no cluster or external services needed)
@@ -141,22 +136,54 @@ tasks:
     internal: true
     cmds:
       - task: setup-coredns-alias
-      - helm dependency build examples/
       - |
-        helm upgrade --install headmaster-examples examples/ \
+        helm upgrade --install headmaster chart/ \
           --kube-context {{.KUBE_CONTEXT}} \
           --namespace {{.TEST_NS}} --create-namespace \
           --wait --timeout=600s \
-          --set headmaster.image.repository=headmaster \
-          --set headmaster.image.tag=dev \
-          --set headmaster.image.pullPolicy=Never \
-          --set "headmaster.rustLog=operator=debug\,scim=debug\,kube=debug\,kube_client=debug\,kube_runtime=debug\,info" \
-          --set headmaster.headscaleInstances.main.serverUrl="http://{{.HEADSCALE_HOSTNAME}}" \
-          --set headmaster.headscaleInstances.main.dnsBaseDomain="{{.TAILNET_DOMAIN}}" \
-          --set headmaster.headscaleInstances.main.extraConfig.log.level=debug \
-          --set "headmaster.headscaleInstances.main.scim.storage.size=100Mi" \
-          --set "headmaster.headscaleInstances.main.scim.oidcIssuer=http://{{.POCKET_ID_HOSTNAME}}" \
-          --set pocketId.apiKey={{.POCKET_ID_API_KEY}}
+          -f examples/values-headmaster.yaml \
+          --set image.repository=headmaster \
+          --set image.tag=dev \
+          --set image.pullPolicy=Never \
+          --set "rustLog=operator=debug\,scim=debug\,kube=debug\,kube_client=debug\,kube_runtime=debug\,info" \
+          --set headscaleInstances.main.serverUrl="http://{{.HEADSCALE_HOSTNAME}}" \
+          --set headscaleInstances.main.dnsBaseDomain="{{.TAILNET_DOMAIN}}" \
+          --set headscaleInstances.main.extraConfig.log.level=debug \
+          --set "headscaleInstances.main.scim.storage.size=100Mi" \
+          --set "headscaleInstances.main.scim.oidcIssuer=http://{{.POCKET_ID_HOSTNAME}}"
+      - |
+        helm upgrade --install pocket-id-operator oci://ghcr.io/aclerici38/charts/pocket-id-operator \
+          --kube-context {{.KUBE_CONTEXT}} \
+          --namespace {{.TEST_NS}} \
+          --wait --timeout=120s \
+          -f examples/values-pocket-id.yaml \
+          --set instance.spec.appUrl="http://{{.POCKET_ID_HOSTNAME}}"
+      - |
+        kubectl --context {{.KUBE_CONTEXT}} create secret generic pocket-id-encryption-key \
+          --namespace {{.TEST_NS}} \
+          --from-literal=key=$(openssl rand -base64 24) \
+          --dry-run=client -o yaml | kubectl --context {{.KUBE_CONTEXT}} apply -f -
+      - |
+        yq '
+          (select(.kind == "Ingress" and .metadata.name == "main") |
+            .metadata.namespace = "{{.TEST_NS}}" |
+            .spec.rules[0].host = "{{.HEADSCALE_HOSTNAME}}") |
+          (select(.kind == "PocketIDOIDCClient") |
+            .metadata.namespace = "{{.TEST_NS}}" |
+            .spec.callbackUrls[0] = "http://{{.HEADSCALE_HOSTNAME}}/oidc/callback" |
+            .spec.scim.endpoint = "http://headscale-scim-main.{{.TEST_NS}}.svc:8081/scim/v2")
+        ' examples/manifests/headscale.yaml \
+        | kubectl --context {{.KUBE_CONTEXT}} apply -f -
+      - |
+        yq 'select(.metadata.name != "pocket-id-encryption-key") |
+          .metadata.namespace = "{{.TEST_NS}}" |
+          (select(.kind == "Secret" and .metadata.name == "pocket-id-static-api-key") |
+            .stringData.token = "{{.POCKET_ID_API_KEY}}") |
+          (select(.kind == "Ingress") |
+            .spec.rules[0].host = "{{.POCKET_ID_HOSTNAME}}")
+        ' examples/manifests/pocket-id.yaml \
+        | kubectl --context {{.KUBE_CONTEXT}} apply -f -
+      - kubectl --context {{.KUBE_CONTEXT}} apply -f examples/manifests/app.yaml
       # Force a rollout so the pod picks up the newly imported headmaster:dev image.
       # helm upgrade with a fixed tag doesn't restart the pod if the spec is unchanged.
       - kubectl --context {{.KUBE_CONTEXT}} rollout restart deployment -l app.kubernetes.io/name=headmaster -n {{.TEST_NS}}

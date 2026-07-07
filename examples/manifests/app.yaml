@@ -1,14 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.app.namespace }}
+  name: test-apps
 ---
-# hello-world: a whoami service exposed on the tailnet for e2e connectivity tests
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hello-world
-  namespace: {{ .Values.app.namespace }}
+  namespace: test-apps
   labels:
     app: hello-world
 spec:
@@ -31,7 +30,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: hello-world
-  namespace: {{ .Values.app.namespace }}
+  namespace: test-apps
 spec:
   selector:
     app: hello-world
@@ -43,7 +42,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: hello-world
-  namespace: {{ .Values.app.namespace }}
+  namespace: test-apps
   annotations:
     headmaster.potatonode.github.io/config: |-
       {
