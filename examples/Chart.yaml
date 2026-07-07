@@ -4,7 +4,7 @@ description: Example headmaster resources for a single-instance headscale deploy
 version: 0.1.0
 dependencies:
   - name: headmaster
-    version: "0.2.0"
+    version: "0.2.0-next"
     repository: "file://../chart"
   - name: pocket-id-operator
     version: "0.7.1"
