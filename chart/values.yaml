@@ -2,8 +2,8 @@
 headscaleInstances: {}
 
 headscaleImage:
-  repository: ghcr.io/juanfont/headscale
-  tag: v0.29.0-beta.2
+  repository: headscale/headscale
+  tag: v0.29.2
 
 proxyImage:
   repository: tailscale/tailscale

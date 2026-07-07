@@ -22,7 +22,7 @@
       "separateMajorMinor": false
     },
     {
-      "matchPackageNames": ["ghcr.io/juanfont/headscale"],
+      "matchPackageNames": ["headscale/headscale"],
       "groupName": "headscale image",
       "groupSlug": "headscale-image"
     }
@@ -44,7 +44,7 @@
       "matchStrings": [
         "\\| `headscaleImage\\.tag`\\s+\\| `string`\\s+\\| `(?<currentValue>[^`]+)`"
       ],
-      "depNameTemplate": "ghcr.io/juanfont/headscale",
+      "depNameTemplate": "headscale/headscale",
       "datasourceTemplate": "docker",
       "versioningTemplate": "semver"
     },
