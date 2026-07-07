@@ -1,5 +1,12 @@
 {
   "name": "main",
+  "bypass_actors": [
+    {
+      "actor_id": 144880836,
+      "actor_type": "Integration",
+      "bypass_mode": "always"
+    }
+  ],
   "target": "branch",
   "enforcement": "active",
   "conditions": {
