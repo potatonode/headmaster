@@ -177,7 +177,7 @@ tasks:
           .metadata.namespace = "{{.TEST_NS}}" |
           with(select(.kind == "Secret" and .metadata.name == "pocket-id-static-api-key");
             .stringData.token = "{{.POCKET_ID_API_KEY}}") |
-          with(select(.kind == "Ingress");
+          with(select(.kind == "Ingress" and .metadata.name == "pocket-id");
             .spec.rules[0].host = "{{.POCKET_ID_HOSTNAME}}")
         ' examples/manifests/pocket-id.yaml \
         | kubectl --context {{.KUBE_CONTEXT}} apply -f -
