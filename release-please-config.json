@@ -5,6 +5,7 @@
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
+      "versioned-files": ["Cargo.toml", "Cargo.lock"],
       "extra-files": [
         {
           "type": "yaml",
