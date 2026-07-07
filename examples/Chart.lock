@@ -1,9 +1,9 @@
 dependencies:
 - name: headmaster
-  repository: file://../chart
+  repository: oci://ghcr.io/potatonode/charts
   version: 0.2.0
 - name: pocket-id-operator
   repository: oci://ghcr.io/aclerici38/charts
   version: 0.7.1
-digest: sha256:ee041add5437b2921ca6f2216df2b0f92e07f2471d6e8df410ddd1ff1bc8ce5e
-generated: "2026-07-07T13:24:55.740519-04:00"
+digest: sha256:134fd8c021f4425d1deddc889e09c6d1fcbb3eb1bddc72a8293e6576dc650acb
+generated: "2026-07-07T14:46:23.631951-04:00"
