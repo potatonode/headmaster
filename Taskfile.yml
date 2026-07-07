@@ -177,12 +177,12 @@ tasks:
   e2e-cleanup:
     internal: true
     cmds:
-      - cmd: task diagnose
+      - task: diagnose
         if: '[ -n "{{.EXIT_CODE}}" ]'
         ignore_error: true
-      - cmd: task cluster-delete
+      - task: cluster-delete
         if: '[ "{{.KEEP_CLUSTER}}" != "true" ]'
-      - cmd: task registry-stop
+      - task: registry-stop
         if: '[ "{{.KEEP_CLUSTER}}" != "true" ]'
 
   wait-namespace-ready:
