@@ -96,7 +96,7 @@ jobs:
           cache-on-failure: "true"
           prefix-key: test-functional-${{ matrix.arch }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache: false
