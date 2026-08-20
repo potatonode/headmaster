@@ -1,7 +1,7 @@
 # Alpine (musl) works here because gRPC to headscale runs as plain HTTP inside
 # the cluster (no system TLS library needed) and Kubernetes API calls use rustls
 # with bundled CA certs — no system OpenSSL required.
-FROM docker.io/library/rust:1.96-alpine@sha256:a41f7740f8b45d45795624eec13a8b42263cc700f19f7e4e86e04d3dda08a479 AS chef
+FROM docker.io/library/rust:1.98-alpine@sha256:a10e64dd139b7387337c7fbe8aca31b959b57b2fd4c8ae20a02cf1d6ea424dce AS chef
 WORKDIR /build
 RUN apk add --no-cache musl-dev git && cargo install cargo-chef
 
