@@ -25,7 +25,7 @@ futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde-saphyr = "0.0"
-jsonc-parser = { version = "0.33", features = ["cst", "serde"] }
+jsonc-parser = { version = "0.34", features = ["cst", "serde"] }
 
 # Logging and tracing
 tracing = "0.1"
@@ -36,7 +36,7 @@ thiserror = "2"
 
 # HTTP server (admission webhook) and HTTP client (SCIM notify)
 axum = "0.8"
-axum-server = { version = "0.8", features = ["tls-rustls"] }
+axum-server = { version = "0.9", features = ["tls-rustls"] }
 http = "1"
 reqwest = { version = "0.13", default-features = false }
 
